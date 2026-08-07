@@ -43,6 +43,47 @@ export const DEFAULT_PERIODS: PeriodData[] = [
 ];
 
 /**
+ * Helper to format date cells (converting Excel serial date numbers like 46240 or Date objects)
+ */
+export function formatDateCell(cellVal: any): string {
+  if (cellVal === null || cellVal === undefined) return '';
+
+  // If already a JS Date object (e.g. from XLSX with cellDates: true)
+  if (cellVal instanceof Date) {
+    const day = String(cellVal.getUTCDate()).padStart(2, '0');
+    const month = String(cellVal.getUTCMonth() + 1).padStart(2, '0');
+    return `${day}/${month}`;
+  }
+
+  const str = String(cellVal).trim();
+  if (!str) return '';
+
+  // Check if string is a numeric Excel serial date (e.g. 46240)
+  const num = Number(str);
+  if (!isNaN(num) && num > 30000 && num < 70000) {
+    try {
+      if (XLSX.SSF && typeof XLSX.SSF.parse_date_code === 'function') {
+        const d = XLSX.SSF.parse_date_code(num);
+        if (d && d.d && d.m) {
+          const day = String(d.d).padStart(2, '0');
+          const month = String(d.m).padStart(2, '0');
+          return `${day}/${month}`;
+        }
+      }
+      // Fallback calculation for Excel serial date code
+      const jsDate = new Date((num - (25567 + 2)) * 86400 * 1000);
+      const day = String(jsDate.getUTCDate()).padStart(2, '0');
+      const month = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
+      return `${day}/${month}`;
+    } catch {
+      // return original string if conversion fails
+    }
+  }
+
+  return str;
+}
+
+/**
  * Parses raw matrix (2D array of strings/values) into PeriodData[]
  */
 export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
@@ -89,7 +130,10 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
       continue;
     }
 
-    const dataName = colData !== -1 && row[colData] ? String(row[colData]).trim() : `Período ${i - headerRowIndex}`;
+    const rawDataVal = colData !== -1 ? row[colData] : null;
+    const dataName = rawDataVal !== null && rawDataVal !== undefined && String(rawDataVal).trim() !== ''
+      ? formatDateCell(rawDataVal)
+      : `Período ${i - headerRowIndex}`;
     const impressoes = colImpressoes !== -1 ? parsePtBrNumber(row[colImpressoes]) : 0;
     const alcance = colAlcance !== -1 ? parsePtBrNumber(row[colAlcance]) : 0;
     const click = colClick !== -1 ? parsePtBrNumber(row[colClick]) : 0;
@@ -171,14 +215,14 @@ export function parseCSVContent(csvString: string): PeriodData[] {
  * Parses an Excel (.xlsx, .xls) ArrayBuffer
  */
 export function parseExcelBuffer(buffer: ArrayBuffer): PeriodData[] {
-  const workbook = XLSX.read(buffer, { type: 'array' });
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, cellNF: true, cellText: true });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
     throw new Error('A planilha está vazia.');
   }
 
   const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+  const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' });
 
   return parseMatrixToPeriods(rows);
 }

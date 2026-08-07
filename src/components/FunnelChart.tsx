@@ -31,6 +31,54 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
     { name: 'Vendas', count: vendas },
   ];
 
+  const getStageTooltipText = (idx: number, count: number) => {
+    if (idx === 0) {
+      return {
+        mainInfo: 'Topo do Funil',
+        detail: 'Volume total de exibição dos anúncios',
+      };
+    }
+
+    const prevStage = stages[idx - 1];
+    const prevCount = prevStage.count;
+    const convRate = prevCount > 0 ? (count / prevCount) * 100 : 0;
+
+    switch (idx) {
+      case 1: // Alcance
+        return {
+          mainInfo: `${formatPercent(convRate)} de aproveitamento das impressões`,
+          detail: 'Proporção de pessoas únicas alcançadas',
+        };
+      case 2: // Click
+        return {
+          mainInfo: `${formatPercent(convRate)} de taxa de clique (CTR)`,
+          detail: 'Percentual de pessoas alcançadas que clicaram',
+        };
+      case 3: // Contatos
+        return {
+          mainInfo: `${formatPercent(convRate)} dos cliques viraram contatos`,
+          detail: 'Conversão de visitantes para início de conversa',
+        };
+      case 4: // Orçamentos
+        return {
+          mainInfo: `${formatPercent(convRate)} dos contatos pediram orçamento`,
+          detail: 'Conversão de contatos em orçamentos gerados',
+        };
+      case 5: { // Vendas
+        const finalConv = contatos > 0 ? (count / contatos) * 100 : 0;
+        return {
+          mainInfo: `${formatPercent(convRate)} dos orçamentos viraram vendas`,
+          detail: `Taxa final de fechamento: ${formatPercent(finalConv)} dos contatos fecharam negócio`,
+        };
+      }
+      default:
+        return {
+          mainInfo: `${formatPercent(convRate)} de conversão`,
+          detail: `Relação com a etapa de ${prevStage.name}`,
+        };
+    }
+  };
+
   return (
     <div className="w-full flex flex-col justify-center py-2 h-full relative">
       <div className="flex items-center justify-between mb-4">
@@ -49,13 +97,9 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
           // Set a visual minimum width so even small numbers are visible as a centered funnel bar
           const visualWidthPct = Math.max(rawPct, 3.5);
 
-          // Calculate conversion rates
-          const pctOfTotal = impressoes > 0 ? (stage.count / impressoes) * 100 : 0;
-          const prevCount = idx > 0 ? stages[idx - 1].count : null;
-          const pctOfPrev = prevCount && prevCount > 0 ? (stage.count / prevCount) * 100 : null;
-
           const isHovered = hoveredIndex === idx;
           const isNarrow = rawPct < 14;
+          const tooltip = getStageTooltipText(idx, stage.count);
 
           return (
             <div
@@ -87,7 +131,7 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
                 >
                   {/* If bar is wide enough, show text inside */}
                   {!isNarrow && (
-                    <span className="text-white z-10 px-1 truncate text-[11px] sm:text-xs">
+                    <span className="text-white z-10 px-1 truncate text-[11px] sm:text-xs font-bold">
                       {formatNumber(stage.count)}
                     </span>
                   )}
@@ -103,15 +147,14 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
 
               {/* Hover Tooltip Popup */}
               {isHovered && (
-                <div className="absolute left-1/2 -top-16 -translate-x-1/2 z-30 bg-gray-900 text-white p-2.5 rounded-xl shadow-xl text-xs whitespace-nowrap pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-gray-700">
-                  <div className="font-bold text-red-400 mb-0.5 border-b border-gray-700 pb-1">
-                    {stage.name}: <span className="text-white">{formatNumber(stage.count)}</span>
+                <div className="absolute left-1/2 -top-16 -translate-x-1/2 z-30 bg-gray-900 text-white p-2.5 rounded-xl shadow-xl text-xs whitespace-nowrap pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-gray-700 min-w-[220px]">
+                  <div className="font-bold text-red-400 mb-1 border-b border-gray-700/80 pb-1 flex items-center justify-between gap-3">
+                    <span>{stage.name}</span>
+                    <span className="text-white font-extrabold">{formatNumber(stage.count)}</span>
                   </div>
-                  <div className="space-y-0.5 text-[11px] text-gray-300">
-                    <div>Total de Impressões: <span className="font-semibold text-white">{formatPercent(pctOfTotal)}</span></div>
-                    {pctOfPrev !== null && (
-                      <div>Etapa Anterior ({stages[idx - 1].name}): <span className="font-semibold text-emerald-400">{formatPercent(pctOfPrev)}</span></div>
-                    )}
+                  <div className="space-y-0.5 text-[11px]">
+                    <div className="font-semibold text-emerald-400">{tooltip.mainInfo}</div>
+                    <div className="text-gray-300 text-[10px]">{tooltip.detail}</div>
                   </div>
                   {/* Tooltip arrow */}
                   <div className="absolute left-1/2 -bottom-1 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45 border-r border-b border-gray-700" />
