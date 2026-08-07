@@ -18,17 +18,20 @@ interface ConversionChartProps {
 
 export const ConversionChart: React.FC<ConversionChartProps> = ({ periods }) => {
   const data = periods.map((p) => {
-    const rate1 = p.contatoParaOrcamento !== undefined
+    let rate1 = p.contatoParaOrcamento !== undefined
       ? p.contatoParaOrcamento
       : p.contatos > 0 ? (p.orcamentos / p.contatos) * 100 : 0;
+    if (Math.abs(rate1) <= 1.0 && rate1 !== 0) rate1 *= 100;
 
-    const rate2 = p.orcamentoParaVenda !== undefined
+    let rate2 = p.orcamentoParaVenda !== undefined
       ? p.orcamentoParaVenda
       : p.orcamentos > 0 ? (p.vendas / p.orcamentos) * 100 : 0;
+    if (Math.abs(rate2) <= 1.0 && rate2 !== 0) rate2 *= 100;
 
-    const rate3 = p.contatoParaVenda !== undefined
+    let rate3 = p.contatoParaVenda !== undefined
       ? p.contatoParaVenda
       : p.contatos > 0 ? (p.vendas / p.contatos) * 100 : 0;
+    if (Math.abs(rate3) <= 1.0 && rate3 !== 0) rate3 *= 100;
 
     return {
       name: p.data,

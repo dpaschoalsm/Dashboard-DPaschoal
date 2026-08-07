@@ -84,6 +84,34 @@ export function formatDateCell(cellVal: any): string {
 }
 
 /**
+ * Helper to parse percentage cells (converting Excel decimal fractions like 0.3957 to 39.57)
+ */
+export function parsePercentageVal(val: any, fallbackCalc: () => number): number {
+  if (val === undefined || val === null || String(val).trim() === '') {
+    return fallbackCalc();
+  }
+
+  if (typeof val === 'number') {
+    if (isNaN(val)) return fallbackCalc();
+    // Excel stores percentages as decimal fractions (e.g. 0.3957 for 39.57%)
+    if (Math.abs(val) <= 1.0 && val !== 0) {
+      return val * 100;
+    }
+    return val;
+  }
+
+  const str = String(val).trim();
+  const num = parsePtBrNumber(str);
+
+  // If string was a raw decimal number <= 1 without '%' (e.g. "0.3957")
+  if (!str.includes('%') && Math.abs(num) <= 1.0 && num !== 0) {
+    return num * 100;
+  }
+
+  return num;
+}
+
+/**
  * Parses raw matrix (2D array of strings/values) into PeriodData[]
  */
 export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
@@ -144,21 +172,25 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     const lucroBruto = colLucro !== -1 ? parsePtBrNumber(row[colLucro]) : 0;
 
     // Rates (if in Excel or computed)
-    const contatoParaOrcamento = colContatoOrcamento !== -1 && row[colContatoOrcamento] !== undefined
-      ? parsePtBrNumber(row[colContatoOrcamento])
-      : contatos > 0 ? (orcamentos / contatos) * 100 : 0;
+    const contatoParaOrcamento = parsePercentageVal(
+      colContatoOrcamento !== -1 ? row[colContatoOrcamento] : undefined,
+      () => (contatos > 0 ? (orcamentos / contatos) * 100 : 0)
+    );
 
-    const orcamentoParaVenda = colOrcamentoVenda !== -1 && row[colOrcamentoVenda] !== undefined
-      ? parsePtBrNumber(row[colOrcamentoVenda])
-      : orcamentos > 0 ? (vendas / orcamentos) * 100 : 0;
+    const orcamentoParaVenda = parsePercentageVal(
+      colOrcamentoVenda !== -1 ? row[colOrcamentoVenda] : undefined,
+      () => (orcamentos > 0 ? (vendas / orcamentos) * 100 : 0)
+    );
 
-    const contatoParaVenda = colContatoVenda !== -1 && row[colContatoVenda] !== undefined
-      ? parsePtBrNumber(row[colContatoVenda])
-      : contatos > 0 ? (vendas / contatos) * 100 : 0;
+    const contatoParaVenda = parsePercentageVal(
+      colContatoVenda !== -1 ? row[colContatoVenda] : undefined,
+      () => (contatos > 0 ? (vendas / contatos) * 100 : 0)
+    );
 
-    const margemBruta = colMargemBruta !== -1 && row[colMargemBruta] !== undefined
-      ? parsePtBrNumber(row[colMargemBruta])
-      : faturamento > 0 ? (lucroBruto / faturamento) * 100 : 0;
+    const margemBruta = parsePercentageVal(
+      colMargemBruta !== -1 ? row[colMargemBruta] : undefined,
+      () => (faturamento > 0 ? (lucroBruto / faturamento) * 100 : 0)
+    );
 
     const ticketMedio = colTicketMedio !== -1 && row[colTicketMedio] !== undefined
       ? parsePtBrNumber(row[colTicketMedio])

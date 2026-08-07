@@ -55,7 +55,8 @@ export default function App() {
   }, 0);
 
   const totalAccMargemBruta = periods.reduce((acc, p) => {
-    const val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+    let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+    if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
     return acc + val;
   }, 0);
 
@@ -90,8 +91,10 @@ export default function App() {
       const prevTM = prev.ticketMedio ?? (prev.vendas > 0 ? prev.faturamento / prev.vendas : 0);
       const lastLBM = last.lucroBrutoMedio ?? (last.vendas > 0 ? last.lucroBruto / last.vendas : 0);
       const prevLBM = prev.lucroBrutoMedio ?? (prev.vendas > 0 ? prev.lucroBruto / prev.vendas : 0);
-      const lastMB = last.margemBruta ?? (last.faturamento > 0 ? (last.lucroBruto / last.faturamento) * 100 : 0);
-      const prevMB = prev.margemBruta ?? (prev.faturamento > 0 ? (prev.lucroBruto / prev.faturamento) * 100 : 0);
+      let lastMB = last.margemBruta ?? (last.faturamento > 0 ? (last.lucroBruto / last.faturamento) * 100 : 0);
+      if (Math.abs(lastMB) <= 1.0 && lastMB !== 0) lastMB *= 100;
+      let prevMB = prev.margemBruta ?? (prev.faturamento > 0 ? (prev.lucroBruto / prev.faturamento) * 100 : 0);
+      if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
 
       changeFaturamento = prev.faturamento > 0 ? ((last.faturamento - prev.faturamento) / prev.faturamento) * 100 : 0;
       changeTicketMedio = prevTM > 0 ? ((lastTM - prevTM) / prevTM) * 100 : 0;
@@ -115,12 +118,14 @@ export default function App() {
     currentTicketMedio = activePeriod.ticketMedio ?? (currentVendas > 0 ? currentFaturamento / currentVendas : 0);
     currentLucroBrutoMedio = activePeriod.lucroBrutoMedio ?? (currentVendas > 0 ? currentLucroBruto / currentVendas : 0);
     currentMargemBruta = activePeriod.margemBruta ?? (currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0);
+    if (Math.abs(currentMargemBruta) <= 1.0 && currentMargemBruta !== 0) currentMargemBruta *= 100;
 
     if (activeIdx > 0) {
       const prevPeriod = periods[activeIdx - 1];
       const prevTM = prevPeriod.ticketMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.faturamento / prevPeriod.vendas : 0);
       const prevLBM = prevPeriod.lucroBrutoMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.lucroBruto / prevPeriod.vendas : 0);
-      const prevMB = prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
+      let prevMB = prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
+      if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
 
       changeFaturamento = prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
       changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
