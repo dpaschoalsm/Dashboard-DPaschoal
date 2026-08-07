@@ -52,30 +52,51 @@ export function formatPercent(value: number): string {
  * Example: "5.773" -> 5773
  */
 export function parsePtBrNumber(val: string | number): number {
-  if (typeof val === 'number') return val;
-  if (!val) return 0;
-  
+  if (typeof val === 'number') {
+    return isNaN(val) ? 0 : val;
+  }
+  if (val === null || val === undefined) return 0;
+
   let cleaned = String(val)
-    .replace(/R\$\s?/g, '')
+    .replace(/R\$\s?/gi, '')
     .replace(/%/g, '')
     .trim();
 
-  // If both dot and comma are present: e.g. "1.306,57" -> dot is thousand separator, comma is decimal
+  if (!cleaned) return 0;
+
+  // If both dot and comma are present:
   if (cleaned.includes('.') && cleaned.includes(',')) {
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    const lastDot = cleaned.lastIndexOf('.');
+    const lastComma = cleaned.lastIndexOf(',');
+    if (lastDot < lastComma) {
+      // e.g. "1.306,57" or "1.000.000,50" -> dot is thousand, comma is decimal
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      // e.g. "1,306.57" or "1,000,000.50" -> comma is thousand, dot is decimal
+      cleaned = cleaned.replace(/,/g, '');
+    }
   } else if (cleaned.includes(',')) {
-    // Only comma present e.g. "1306,57" or "34,22"
-    cleaned = cleaned.replace(',', '.');
+    // Only comma present:
+    const parts = cleaned.split(',');
+    if (parts.length > 2) {
+      // e.g. "1,000,000" -> thousand separators
+      cleaned = cleaned.replace(/,/g, '');
+    } else if (parts[1] && parts[1].length === 3) {
+      // Exactly 3 digits after single comma e.g. "463,000" or "6,924"
+      cleaned = cleaned.replace(/,/g, '');
+    } else {
+      // Decimal comma e.g. "34,22" or "1306,57"
+      cleaned = cleaned.replace(',', '.');
+    }
   } else if (cleaned.includes('.')) {
-    // Could be thousand separator "321.415" or float "321415.5"
-    // In pt-BR, if there are 3 digits after the dot at the end, e.g. "321.415", it's usually thousands
+    // Only dot present:
     const parts = cleaned.split('.');
     if (parts.length > 2) {
-      // e.g. 1.000.000
+      // e.g. "1.000.000" -> thousand separators
       cleaned = cleaned.replace(/\./g, '');
     } else if (parts[1] && parts[1].length === 3) {
-      // Likely thousand separator
-      cleaned = cleaned.replace('.', '');
+      // Exactly 3 digits after single dot e.g. "463.000" or "321.415" or "6.924"
+      cleaned = cleaned.replace(/\./g, '');
     }
   }
 

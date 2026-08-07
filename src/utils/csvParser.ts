@@ -222,7 +222,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): PeriodData[] {
   }
 
   const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' });
+  const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: true, dateNF: 'dd/mm/yyyy' });
 
   return parseMatrixToPeriods(rows);
 }
