@@ -43,9 +43,21 @@ export default function App() {
   const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
   const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
   const totalAccVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
-  const totalAccTicketMedio = totalAccVendas > 0 ? totalAccFaturamento / totalAccVendas : 0;
-  const totalAccLucroBrutoMedio = totalAccVendas > 0 ? totalAccLucroBruto / totalAccVendas : 0;
-  const totalAccMargemBruta = totalAccFaturamento > 0 ? (totalAccLucroBruto / totalAccFaturamento) * 100 : 0;
+
+  const totalAccTicketMedio = periods.reduce((acc, p) => {
+    const val = p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0);
+    return acc + val;
+  }, 0);
+
+  const totalAccLucroBrutoMedio = periods.reduce((acc, p) => {
+    const val = p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0);
+    return acc + val;
+  }, 0);
+
+  const totalAccMargemBruta = periods.reduce((acc, p) => {
+    const val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+    return acc + val;
+  }, 0);
 
   // Variation vs previous period
   let changeFaturamento: number | null = null;
