@@ -39,6 +39,22 @@ export default function App() {
   let currentLucroBrutoMedio = 0;
   let currentMargemBruta = 0;
 
+  // Calculate overall accumulated totals across ALL days/periods
+  const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
+  const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
+  const totalAccVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
+  const totalAccTicketMedio = totalAccVendas > 0 ? totalAccFaturamento / totalAccVendas : 0;
+  const totalAccLucroBrutoMedio = totalAccVendas > 0 ? totalAccLucroBruto / totalAccVendas : 0;
+  const totalAccMargemBruta = totalAccFaturamento > 0 ? (totalAccLucroBruto / totalAccFaturamento) * 100 : 0;
+
+  // Variation vs previous period
+  let changeFaturamento: number | null = null;
+  let changeTicketMedio: number | null = null;
+  let changeLucroBruto: number | null = null;
+  let changeLucroBrutoMedio: number | null = null;
+  let changeMargemBruta: number | null = null;
+  let compLabel = 'vs. ant.';
+
   if (isConsolidated) {
     currentImpressoes = periods.reduce((acc, p) => acc + p.impressoes, 0);
     currentAlcance = periods.reduce((acc, p) => acc + p.alcance, 0);
@@ -46,14 +62,35 @@ export default function App() {
     currentContatos = periods.reduce((acc, p) => acc + p.contatos, 0);
     currentOrcamentos = periods.reduce((acc, p) => acc + p.orcamentos, 0);
     currentVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
-    currentFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
-    currentLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
+    currentFaturamento = totalAccFaturamento;
+    currentLucroBruto = totalAccLucroBruto;
+    currentTicketMedio = totalAccTicketMedio;
+    currentLucroBrutoMedio = totalAccLucroBrutoMedio;
+    currentMargemBruta = totalAccMargemBruta;
 
-    currentTicketMedio = currentVendas > 0 ? currentFaturamento / currentVendas : 0;
-    currentLucroBrutoMedio = currentVendas > 0 ? currentLucroBruto / currentVendas : 0;
-    currentMargemBruta = currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0;
+    // If consolidated and we have at least 2 periods, compare last vs previous period
+    if (periods.length >= 2) {
+      const last = periods[periods.length - 1];
+      const prev = periods[periods.length - 2];
+      compLabel = 'último per.';
+
+      const lastTM = last.ticketMedio ?? (last.vendas > 0 ? last.faturamento / last.vendas : 0);
+      const prevTM = prev.ticketMedio ?? (prev.vendas > 0 ? prev.faturamento / prev.vendas : 0);
+      const lastLBM = last.lucroBrutoMedio ?? (last.vendas > 0 ? last.lucroBruto / last.vendas : 0);
+      const prevLBM = prev.lucroBrutoMedio ?? (prev.vendas > 0 ? prev.lucroBruto / prev.vendas : 0);
+      const lastMB = last.margemBruta ?? (last.faturamento > 0 ? (last.lucroBruto / last.faturamento) * 100 : 0);
+      const prevMB = prev.margemBruta ?? (prev.faturamento > 0 ? (prev.lucroBruto / prev.faturamento) * 100 : 0);
+
+      changeFaturamento = prev.faturamento > 0 ? ((last.faturamento - prev.faturamento) / prev.faturamento) * 100 : 0;
+      changeTicketMedio = prevTM > 0 ? ((lastTM - prevTM) / prevTM) * 100 : 0;
+      changeLucroBruto = prev.lucroBruto > 0 ? ((last.lucroBruto - prev.lucroBruto) / prev.lucroBruto) * 100 : 0;
+      changeLucroBrutoMedio = prevLBM > 0 ? ((lastLBM - prevLBM) / prevLBM) * 100 : 0;
+      changeMargemBruta = prevMB > 0 ? ((lastMB - prevMB) / prevMB) * 100 : 0;
+    }
   } else {
-    const activePeriod = periods.find((p) => p.id === selectedPeriodId) || periods[0];
+    const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
+    const activePeriod = activeIdx >= 0 ? periods[activeIdx] : periods[0];
+
     currentImpressoes = activePeriod.impressoes;
     currentAlcance = activePeriod.alcance;
     currentClick = activePeriod.click;
@@ -66,6 +103,19 @@ export default function App() {
     currentTicketMedio = activePeriod.ticketMedio ?? (currentVendas > 0 ? currentFaturamento / currentVendas : 0);
     currentLucroBrutoMedio = activePeriod.lucroBrutoMedio ?? (currentVendas > 0 ? currentLucroBruto / currentVendas : 0);
     currentMargemBruta = activePeriod.margemBruta ?? (currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0);
+
+    if (activeIdx > 0) {
+      const prevPeriod = periods[activeIdx - 1];
+      const prevTM = prevPeriod.ticketMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.faturamento / prevPeriod.vendas : 0);
+      const prevLBM = prevPeriod.lucroBrutoMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.lucroBruto / prevPeriod.vendas : 0);
+      const prevMB = prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
+
+      changeFaturamento = prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
+      changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
+      changeLucroBruto = prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
+      changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
+      changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
+    }
   }
 
   return (
@@ -126,22 +176,37 @@ export default function App() {
             <MetricCard
               label="Faturamento"
               value={formatCurrency(currentFaturamento)}
+              accumulatedValue={formatCurrency(totalAccFaturamento)}
+              changePercent={changeFaturamento}
+              comparisonLabel={compLabel}
             />
             <MetricCard
               label="Ticket Médio"
               value={formatCurrency(currentTicketMedio)}
+              accumulatedValue={formatCurrency(totalAccTicketMedio)}
+              changePercent={changeTicketMedio}
+              comparisonLabel={compLabel}
             />
             <MetricCard
               label="Lucro Bruto"
               value={formatCurrency(currentLucroBruto)}
+              accumulatedValue={formatCurrency(totalAccLucroBruto)}
+              changePercent={changeLucroBruto}
+              comparisonLabel={compLabel}
             />
             <MetricCard
               label="Lucro Bruto Médio"
               value={formatCurrency(currentLucroBrutoMedio)}
+              accumulatedValue={formatCurrency(totalAccLucroBrutoMedio)}
+              changePercent={changeLucroBrutoMedio}
+              comparisonLabel={compLabel}
             />
             <MetricCard
               label="Margem Bruta"
               value={formatPercent(currentMargemBruta)}
+              accumulatedValue={formatPercent(totalAccMargemBruta)}
+              changePercent={changeMargemBruta}
+              comparisonLabel={compLabel}
             />
           </div>
 
