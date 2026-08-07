@@ -1,0 +1,6 @@
+{
+  "name": "Dashboard de Vendas e Funil de Conversão",
+  "description": "Visualização de dados de vendas, funil de contatos/orçamentos/vendas e taxas de conversão com exportação em PNG e importação de CSV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
