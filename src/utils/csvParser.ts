@@ -132,23 +132,65 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     return headers.findIndex((h) => matchFn(h));
   };
 
+  // Helper to identify rate/conversion ratio headers
+  const isRateHeader = (h: string) =>
+    h.includes('->') || h.includes('→') || h.includes('?') || h.includes('/') || h.includes('médio') || h.includes('medio') || h.includes('ticket') || h.includes('margem');
+
+  // Conversion rate column mappings
+  const colContatoOrcamento = findColIndex((h) =>
+    (h.includes('contato') && (h.includes('orçamento') || h.includes('orcamento'))) ||
+    h.includes('contato ->') || h.includes('contato →') || h.includes('contato ?') || h.includes('contato a ')
+  );
+
+  const colOrcamentoVenda = findColIndex((h) =>
+    ((h.includes('orçamento') || h.includes('orcamento')) && h.includes('venda')) ||
+    h.includes('orçamento ->') || h.includes('orcamento ->') || h.includes('orçamento →') || h.includes('orçamento ?') || h.includes('orçamento a ')
+  );
+
+  const colContatoVenda = findColIndex((h) =>
+    (h.includes('contato') && h.includes('venda')) ||
+    h.includes('contato -> ve') || h.includes('contato → ve') || h.includes('contato ? ve')
+  );
+
+  const colMargemBruta = findColIndex((h) => h.includes('margem'));
+  const colTicketMedio = findColIndex((h) => h.includes('ticket'));
+  const colLucroMedio = findColIndex((h) => h.includes('lucro') && (h.includes('médio') || h.includes('medio')));
+
+  // Base metric columns
   const colData = findColIndex((h) => h === 'data' || h.includes('periodo') || h.includes('período') || h.includes('mês') || h.includes('mes'));
   const colImpressoes = findColIndex((h) => h.includes('impress'));
   const colAlcance = findColIndex((h) => h.includes('alcance') || h.includes('reach'));
   const colClick = findColIndex((h) => h.includes('click') || h.includes('clique'));
-  const colContatos = findColIndex((h) => h.includes('contato') && !h.includes('?'));
-  const colOrcamentos = findColIndex((h) => (h.includes('orçamento') || h.includes('orcamento') || h.includes('proposta')) && !h.includes('?'));
-  const colVendas = findColIndex((h) => (h.includes('venda') || h.includes('vendas')) && !h.includes('?'));
-  const colFaturamento = findColIndex((h) => h.includes('faturamento') || h.includes('receita'));
-  const colLucro = findColIndex((h) => h.includes('lucro') && !h.includes('médio') && !h.includes('medio') && !h.includes('/'));
 
-  // Calculated rate column mappings
-  const colContatoOrcamento = findColIndex((h) => (h.includes('contato') && (h.includes('orçamento') || h.includes('orcamento'))) || h.includes('contato ? or') || h.includes('contato -> or'));
-  const colOrcamentoVenda = findColIndex((h) => ((h.includes('orçamento') || h.includes('orcamento')) && h.includes('venda')) || h.includes('orçamento ? ve') || h.includes('orcamento ? ve') || h.includes('orçamento -> ve'));
-  const colContatoVenda = findColIndex((h) => (h.includes('contato') && h.includes('venda')) || h.includes('contato ? ve') || h.includes('contato -> ve'));
-  const colMargemBruta = findColIndex((h) => h.includes('margem'));
-  const colTicketMedio = findColIndex((h) => h.includes('ticket'));
-  const colLucroMedio = findColIndex((h) => h.includes('lucro') && (h.includes('médio') || h.includes('medio')));
+  // Contatos
+  let colContatos = findColIndex((h) => h === 'contatos' || h === 'contato' || h === 'leads' || h === 'lead');
+  if (colContatos === -1) {
+    colContatos = findColIndex((h) => (h.includes('contato') || h.includes('lead')) && !isRateHeader(h) && !h.includes('orçamento') && !h.includes('orcamento') && !h.includes('venda'));
+  }
+
+  // Orçamentos
+  let colOrcamentos = findColIndex((h) => h === 'orçamentos' || h === 'orcamentos' || h === 'orçamento' || h === 'orcamento' || h === 'propostas' || h === 'proposta');
+  if (colOrcamentos === -1) {
+    colOrcamentos = findColIndex((h) => (h.includes('orçamento') || h.includes('orcamento') || h.includes('proposta')) && !isRateHeader(h) && !h.includes('contato') && !h.includes('venda'));
+  }
+
+  // Vendas
+  let colVendas = findColIndex((h) => h === 'vendas' || h === 'venda' || h === 'qtd vendas' || h === 'qtd de vendas' || h === 'num vendas' || h === 'número de vendas');
+  if (colVendas === -1) {
+    colVendas = findColIndex((h) => (h.includes('venda') || h.includes('vendas')) && !isRateHeader(h) && !h.includes('contato') && !h.includes('orçamento') && !h.includes('orcamento'));
+  }
+
+  // Faturamento
+  let colFaturamento = findColIndex((h) => h === 'faturamento' || h === 'receita' || h === 'faturamento total');
+  if (colFaturamento === -1) {
+    colFaturamento = findColIndex((h) => (h.includes('faturamento') || h.includes('receita')) && !isRateHeader(h));
+  }
+
+  // Lucro Bruto
+  let colLucro = findColIndex((h) => h === 'lucro bruto' || h === 'lucro');
+  if (colLucro === -1) {
+    colLucro = findColIndex((h) => h.includes('lucro') && !isRateHeader(h));
+  }
 
   const periods: PeriodData[] = [];
 
