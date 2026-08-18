@@ -70,7 +70,7 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
         body: JSON.stringify({ url: cleanUrl }),
       });
 
-      // If 404 or 405, try next endpoint candidate
+      // If 404 or 405 (route doesn't exist on this host), try next candidate
       if (response.status === 404 || response.status === 405) {
         continue;
       }
@@ -80,6 +80,12 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
       try {
         data = JSON.parse(responseText);
       } catch {
+        // Not JSON - check if it's a Vercel/Cloud error
+        if (responseText.includes('FUNCTION_INVOCATION_FAILED')) {
+          console.warn(`[Sync] Serverless invocation error on ${endpoint}. Trying fallback...`);
+          lastApiError = new Error('Falha na execução da função no servidor (FUNCTION_INVOCATION_FAILED).');
+          continue;
+        }
         if (!response.ok) {
           throw new Error(`Erro HTTP ${response.status}: ${responseText.slice(0, 100)}`);
         }
@@ -87,7 +93,8 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
       }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || `Falha na sincronização (HTTP ${response.status}).`);
+        const errorMsg = data.error || `Falha na sincronização (HTTP ${response.status}).`;
+        throw new Error(errorMsg);
       }
 
       if (!data.rows || data.rows.length === 0) {
@@ -102,12 +109,16 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
       };
     } catch (err: any) {
       lastApiError = err;
+      // If we got a specific error from the server (like "O SharePoint bloqueou..."), stop trying other endpoints and throw
+      if (err.message && (err.message.includes('SharePoint') || err.message.includes('Google Planilhas') || err.message.includes('login'))) {
+        throw err;
+      }
     }
   }
 
   // 3. Fallback for Static / Edge environments (Vercel edge, GitHub Pages, etc.)
-  // If backend endpoints are 404, download directly via CORS proxy in browser
-  console.log('[Sync] Backend API unavailable. Attempting direct client-side download...');
+  // If backend endpoints failed, attempt download via CORS proxy in browser
+  console.log('[Sync] Attempting direct client-side download fallback...');
   const directDownloadUrl = cleanUrl.includes('?') ? `${cleanUrl}&download=1` : `${cleanUrl}?download=1`;
   const corsProxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(directDownloadUrl)}`,
@@ -136,5 +147,5 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
     }
   }
 
-  throw lastApiError || new Error('Não foi possível conectar com a planilha. Verifique a conexão e o link.');
+  throw lastApiError || new Error('Não foi possível conectar com a planilha. Verifique o link e as permissões.');
 }

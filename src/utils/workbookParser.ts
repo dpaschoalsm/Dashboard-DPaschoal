@@ -7,7 +7,7 @@ export const DEFAULT_GOOGLE_SHEETS_URL =
   'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
 
 /**
- * Downloads a spreadsheet from Google Sheets
+ * Downloads a spreadsheet from Google Sheets (.xlsx format)
  */
 export async function fetchGoogleSpreadsheetBuffer(targetUrl: string): Promise<ArrayBuffer> {
   const match = targetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -24,6 +24,13 @@ export async function fetchGoogleSpreadsheetBuffer(targetUrl: string): Promise<A
     },
     redirect: 'follow',
   });
+
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    throw new Error(
+      'O Google Planilhas retornou uma página HTML (possivelmente tela de login ou permissão negada). Verifique se a planilha está pública para qualquer pessoa com o link.'
+    );
+  }
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403 || res.url.includes('accounts.google.com')) {
@@ -43,7 +50,7 @@ export async function fetchGoogleSpreadsheetBuffer(targetUrl: string): Promise<A
 }
 
 /**
- * Downloads a spreadsheet from SharePoint / OneDrive
+ * Downloads a spreadsheet from SharePoint / OneDrive (.xlsx format)
  */
 export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<ArrayBuffer> {
   const userAgent =
@@ -51,6 +58,8 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
 
   // Strategy 1: Direct &download=1 with redirect: follow
   const downloadUrl = targetUrl.includes('?') ? `${targetUrl}&download=1` : `${targetUrl}?download=1`;
+  console.log(`[SharePoint Sync] Strategy 1: Attempting direct &download=1 fetch: ${downloadUrl}`);
+  
   try {
     const directRes = await fetch(downloadUrl, {
       headers: {
@@ -61,18 +70,22 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
       redirect: 'follow',
     });
 
-    if (directRes.ok) {
+    const directContentType = directRes.headers.get('content-type') || '';
+    if (directRes.ok && !directContentType.includes('text/html')) {
       const directBuf = await directRes.arrayBuffer();
       const directBytes = new Uint8Array(directBuf);
+      // Verify XLSX / ZIP signature (PK\x03\x04: 0x50, 0x4b, 0x03, 0x04)
       if (directBytes.length > 500 && directBytes[0] === 0x50 && directBytes[1] === 0x4b) {
+        console.log(`[SharePoint Sync] Strategy 1 succeeded! Downloaded ${directBuf.byteLength} bytes.`);
         return directBuf;
       }
     }
   } catch (directErr) {
-    // Continue to next strategy
+    console.warn('[SharePoint Sync] Strategy 1 direct download failed:', directErr);
   }
 
   // Strategy 2: Session-based WOPI / download.aspx extractor
+  console.log(`[SharePoint Sync] Strategy 2: Requesting initial sharing URL: ${targetUrl}`);
   const initialRes = await fetch(targetUrl, {
     headers: {
       'User-Agent': userAgent,
@@ -100,7 +113,7 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
 
   if (location && (location.includes('login.microsoftonline.com') || location.includes('_forms/default.aspx'))) {
     throw new Error(
-      'O link do SharePoint requer login na conta Microsoft. Certifique-se de que o link foi gerado como "Qualquer pessoa com o link".'
+      'O link do SharePoint requer login na conta corporativa Microsoft. Para liberar o acesso direto, gere o link como "Qualquer pessoa com o link".'
     );
   }
 
@@ -119,6 +132,7 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
       const personalPath = pathMatch ? pathMatch[1] : '';
       const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false`;
 
+      console.log(`[SharePoint Sync] Fast direct download URL: ${fastDownloadUrl}`);
       const fastDlRes = await fetch(fastDownloadUrl, {
         headers: {
           'User-Agent': userAgent,
@@ -127,15 +141,17 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
         redirect: 'follow',
       });
 
-      if (fastDlRes.ok) {
+      const fastContentType = fastDlRes.headers.get('content-type') || '';
+      if (fastDlRes.ok && !fastContentType.includes('text/html')) {
         const buf = await fastDlRes.arrayBuffer();
         const bytes = new Uint8Array(buf);
         if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
+          console.log(`[SharePoint Sync] Fast download succeeded! ${buf.byteLength} bytes.`);
           return buf;
         }
       }
     } catch (fastErr) {
-      // Continue to next strategy
+      console.warn('[SharePoint Sync] Fast download error:', fastErr);
     }
   }
 
@@ -171,6 +187,7 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
     try {
       const wopiObj = JSON.parse(wopiMatch[1]);
       if (wopiObj.FileGetUrl) {
+        console.log(`[SharePoint Sync] Downloading from WOPI FileGetUrl...`);
         const fileRes = await fetch(wopiObj.FileGetUrl, {
           headers: {
             'User-Agent': userAgent,
@@ -179,15 +196,17 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
           redirect: 'follow',
         });
 
-        if (fileRes.ok) {
+        const fileContentType = fileRes.headers.get('content-type') || '';
+        if (fileRes.ok && !fileContentType.includes('text/html')) {
           const buf = await fileRes.arrayBuffer();
-          if (buf.byteLength > 200) {
+          const bytes = new Uint8Array(buf);
+          if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
             return buf;
           }
         }
       }
     } catch (wopiErr) {
-      // Continue
+      console.warn('[SharePoint Sync] WOPI parsing error:', wopiErr);
     }
   }
 
@@ -206,40 +225,69 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
       redirect: 'follow',
     });
 
-    if (dlRes.ok) {
+    const dlContentType = dlRes.headers.get('content-type') || '';
+    if (dlRes.ok && !dlContentType.includes('text/html')) {
       const buf = await dlRes.arrayBuffer();
-      if (buf.byteLength > 200) {
+      const bytes = new Uint8Array(buf);
+      if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
         return buf;
       }
     }
   }
 
-  throw new Error('Não foi possível obter o arquivo .xlsx da planilha.');
+  // If we reached here and received HTML
+  throw new Error('O SharePoint bloqueou o download e retornou um HTML em vez do arquivo Excel.');
 }
 
 /**
  * Extracts 2D array rows and sheet name from ArrayBuffer
  */
 export function extractWorkbookRows(arrayBuffer: ArrayBuffer): { rows: any[][]; sheetName: string } {
-  const workbook = XLSX.read(new Uint8Array(arrayBuffer), {
-    type: 'array',
-    cellDates: true,
-    cellNF: true,
-    cellText: true,
-  });
-
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) {
-    throw new Error('Nenhuma aba encontrada na planilha.');
+  if (!arrayBuffer || arrayBuffer.byteLength < 100) {
+    throw new Error('O arquivo baixado está vazio ou não foi recebido corretamente.');
   }
 
-  const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<any[]>(sheet, {
-    header: 1,
-    raw: false,
-    dateNF: 'dd/mm/yyyy',
-    defval: '',
-  });
+  const bytes = new Uint8Array(arrayBuffer);
 
-  return { rows, sheetName: firstSheetName };
+  // Check for HTML response
+  const firstChars = String.fromCharCode(...bytes.slice(0, 100));
+  if (
+    firstChars.includes('<html') ||
+    firstChars.includes('<!DOCTYPE') ||
+    firstChars.includes('<HTML') ||
+    firstChars.includes('<?xml')
+  ) {
+    throw new Error('O SharePoint bloqueou o download e retornou um HTML em vez do arquivo Excel.');
+  }
+
+  // Verify XLSX ZIP header (PK\x03\x04)
+  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+    throw new Error('O arquivo retornado não é uma planilha Excel (.xlsx) válida.');
+  }
+
+  try {
+    const workbook = XLSX.read(bytes, {
+      type: 'array',
+      cellDates: true,
+      cellNF: true,
+      cellText: true,
+    });
+
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error('Nenhuma aba encontrada na planilha Excel.');
+    }
+
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json<any[]>(sheet, {
+      header: 1,
+      raw: false,
+      dateNF: 'dd/mm/yyyy',
+      defval: '',
+    });
+
+    return { rows, sheetName: firstSheetName };
+  } catch (parseErr: any) {
+    throw new Error(`Falha no parse do Excel: ${parseErr.message || 'formato de arquivo inválido'}`);
+  }
 }

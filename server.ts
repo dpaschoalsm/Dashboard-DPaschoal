@@ -26,42 +26,60 @@ async function handleSpreadsheetSync(req: express.Request, res: express.Response
     let arrayBuffer: ArrayBuffer;
     const isGoogleSheets = rawUrl.includes('docs.google.com/spreadsheets');
 
-    if (isGoogleSheets) {
-      arrayBuffer = await fetchGoogleSpreadsheetBuffer(rawUrl);
-    } else {
-      arrayBuffer = await fetchSharePointWorkbookBuffer(rawUrl);
+    // Stage 1: Download
+    try {
+      if (isGoogleSheets) {
+        arrayBuffer = await fetchGoogleSpreadsheetBuffer(rawUrl);
+      } else {
+        arrayBuffer = await fetchSharePointWorkbookBuffer(rawUrl);
+      }
+    } catch (fetchErr: any) {
+      console.error('[Spreadsheet Sync Fetch Error]:', fetchErr);
+      return res.status(500).json({
+        success: false,
+        stage: 'fetch',
+        error: fetchErr.message || 'Falha ao baixar os dados da planilha.',
+      });
     }
 
-    const { rows, sheetName } = extractWorkbookRows(arrayBuffer);
+    // Stage 2: Parse
+    try {
+      const { rows, sheetName } = extractWorkbookRows(arrayBuffer);
+      console.log(`[Spreadsheet Sync] Successfully parsed ${rows.length} rows from sheet "${sheetName}".`);
 
-    console.log(`[Spreadsheet Sync] Successfully parsed ${rows.length} rows from sheet "${sheetName}".`);
-
-    return res.json({
-      success: true,
-      provider: isGoogleSheets ? 'Google Sheets' : 'SharePoint',
-      sheetName,
-      rows,
-      url: rawUrl,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    console.error('[Spreadsheet Sync Error]:', error);
+      return res.json({
+        success: true,
+        provider: isGoogleSheets ? 'Google Sheets' : 'SharePoint',
+        sheetName,
+        rows,
+        url: rawUrl,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (parseErr: any) {
+      console.error('[Spreadsheet Sync Parse Error]:', parseErr);
+      return res.status(500).json({
+        success: false,
+        stage: 'parse',
+        error: parseErr.message || 'Falha no processamento da planilha Excel (.xlsx).',
+      });
+    }
+  } catch (fatalErr: any) {
+    console.error('[Spreadsheet Sync Fatal Error]:', fatalErr);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Falha ao sincronizar com a planilha.',
+      stage: 'fatal',
+      error: fatalErr.message || 'Erro interno no servidor ao sincronizar planilha.',
     });
   }
 }
 
-// API Routes - multiple aliases for serverless & reverse proxies
+// API Routes
 app.post('/api/sync-sharepoint', handleSpreadsheetSync);
 app.get('/api/sync-sharepoint', handleSpreadsheetSync);
 app.post('/api/sync', handleSpreadsheetSync);
 app.get('/api/sync', handleSpreadsheetSync);
 app.post('/api/sharepoint', handleSpreadsheetSync);
 app.get('/api/sharepoint', handleSpreadsheetSync);
-app.post('/api/fetch-spreadsheet', handleSpreadsheetSync);
-app.get('/api/fetch-spreadsheet', handleSpreadsheetSync);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
