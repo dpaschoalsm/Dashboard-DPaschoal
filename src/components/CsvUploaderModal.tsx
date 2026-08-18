@@ -181,13 +181,14 @@ export const CsvUploaderModal: React.FC<CsvUploaderModalProps> = ({
                   <div className="font-bold text-[#DC2626] mb-2 text-sm border-b pb-1">
                     {period.data}
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div><span className="text-gray-400 block">Impressões:</span> <span className="font-semibold">{formatNumber(period.impressoes)}</span></div>
                     <div><span className="text-gray-400 block">Alcance:</span> <span className="font-semibold">{formatNumber(period.alcance)}</span></div>
                     <div><span className="text-gray-400 block">Click:</span> <span className="font-semibold">{formatNumber(period.click)}</span></div>
                     <div><span className="text-gray-400 block">Contatos:</span> <span className="font-semibold">{formatNumber(period.contatos)}</span></div>
                     <div><span className="text-gray-400 block">Orçamentos:</span> <span className="font-semibold">{formatNumber(period.orcamentos)}</span></div>
                     <div><span className="text-gray-400 block">Vendas:</span> <span className="font-semibold">{formatNumber(period.vendas)}</span></div>
+                    <div><span className="text-gray-400 block">Investimento:</span> <span className="font-semibold text-purple-600">{formatCurrency(period.investimento ?? 0)}</span></div>
                     <div><span className="text-gray-400 block">Faturamento:</span> <span className="font-semibold text-emerald-600">{formatCurrency(period.faturamento)}</span></div>
                     <div><span className="text-gray-400 block">Lucro Bruto:</span> <span className="font-semibold text-blue-600">{formatCurrency(period.lucroBruto)}</span></div>
                   </div>

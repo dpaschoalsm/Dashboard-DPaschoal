@@ -9,6 +9,7 @@ export interface PeriodData {
   vendas: number;
   faturamento: number;
   lucroBruto: number;
+  investimento?: number; // R$ Investment / Ads cost
   
   // Optional calculated/overridden fields
   contatoParaOrcamento?: number; // percentage e.g. 23.84

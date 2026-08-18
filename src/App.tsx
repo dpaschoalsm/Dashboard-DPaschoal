@@ -35,6 +35,7 @@ export default function App() {
   let currentVendas = 0;
   let currentFaturamento = 0;
   let currentLucroBruto = 0;
+  let currentInvestimento = 0;
   let currentTicketMedio = 0;
   let currentLucroBrutoMedio = 0;
   let currentMargemBruta = 0;
@@ -42,6 +43,7 @@ export default function App() {
   // Calculate overall accumulated totals across ALL days/periods
   const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
   const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
+  const totalAccInvestimento = periods.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
   const totalAccVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
 
   const totalAccTicketMedio = periods.length > 0
@@ -62,11 +64,20 @@ export default function App() {
 
   // Variation vs previous period
   let changeFaturamento: number | null = null;
+  let changeInvestimento: number | null = null;
   let changeTicketMedio: number | null = null;
   let changeLucroBruto: number | null = null;
   let changeLucroBrutoMedio: number | null = null;
   let changeMargemBruta: number | null = null;
   let compLabel = 'vs. ant.';
+  let funnelPreviousCounts: {
+    impressoes?: number | null;
+    alcance?: number | null;
+    click?: number | null;
+    contatos?: number | null;
+    orcamentos?: number | null;
+    vendas?: number | null;
+  } | null = null;
 
   if (isConsolidated) {
     currentImpressoes = periods.reduce((acc, p) => acc + p.impressoes, 0);
@@ -77,6 +88,7 @@ export default function App() {
     currentVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
     currentFaturamento = totalAccFaturamento;
     currentLucroBruto = totalAccLucroBruto;
+    currentInvestimento = totalAccInvestimento;
     currentTicketMedio = totalAccTicketMedio;
     currentLucroBrutoMedio = totalAccLucroBrutoMedio;
     currentMargemBruta = totalAccMargemBruta;
@@ -96,11 +108,24 @@ export default function App() {
       let prevMB = prev.margemBruta ?? (prev.faturamento > 0 ? (prev.lucroBruto / prev.faturamento) * 100 : 0);
       if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
 
+      const lastInv = last.investimento ?? 0;
+      const prevInv = prev.investimento ?? 0;
+
       changeFaturamento = prev.faturamento > 0 ? ((last.faturamento - prev.faturamento) / prev.faturamento) * 100 : 0;
+      changeInvestimento = prevInv > 0 ? ((lastInv - prevInv) / prevInv) * 100 : (lastInv > 0 ? 100 : 0);
       changeTicketMedio = prevTM > 0 ? ((lastTM - prevTM) / prevTM) * 100 : 0;
       changeLucroBruto = prev.lucroBruto > 0 ? ((last.lucroBruto - prev.lucroBruto) / prev.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((lastLBM - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((lastMB - prevMB) / prevMB) * 100 : 0;
+
+      funnelPreviousCounts = {
+        impressoes: prev.impressoes,
+        alcance: prev.alcance,
+        click: prev.click,
+        contatos: prev.contatos,
+        orcamentos: prev.orcamentos,
+        vendas: prev.vendas,
+      };
     }
   } else {
     const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
@@ -114,6 +139,7 @@ export default function App() {
     currentVendas = activePeriod.vendas;
     currentFaturamento = activePeriod.faturamento;
     currentLucroBruto = activePeriod.lucroBruto;
+    currentInvestimento = activePeriod.investimento ?? 0;
 
     currentTicketMedio = activePeriod.ticketMedio ?? (currentVendas > 0 ? currentFaturamento / currentVendas : 0);
     currentLucroBrutoMedio = activePeriod.lucroBrutoMedio ?? (currentVendas > 0 ? currentLucroBruto / currentVendas : 0);
@@ -127,11 +153,23 @@ export default function App() {
       let prevMB = prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
       if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
 
+      const prevInv = prevPeriod.investimento ?? 0;
+
       changeFaturamento = prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
+      changeInvestimento = prevInv > 0 ? ((currentInvestimento - prevInv) / prevInv) * 100 : (currentInvestimento > 0 ? 100 : 0);
       changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
       changeLucroBruto = prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
+
+      funnelPreviousCounts = {
+        impressoes: prevPeriod.impressoes,
+        alcance: prevPeriod.alcance,
+        click: prevPeriod.click,
+        contatos: prevPeriod.contatos,
+        orcamentos: prevPeriod.orcamentos,
+        vendas: prevPeriod.vendas,
+      };
     }
   }
 
@@ -188,20 +226,13 @@ export default function App() {
           ref={dashboardRef}
           className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-2xs space-y-8"
         >
-          {/* Top Row: 5 Pill Metric Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+          {/* Top Row: 6 Pill Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
             <MetricCard
               label="Faturamento"
               value={formatCurrency(currentFaturamento)}
               accumulatedValue={formatCurrency(totalAccFaturamento)}
               changePercent={changeFaturamento}
-              comparisonLabel={compLabel}
-            />
-            <MetricCard
-              label="Ticket Médio"
-              value={formatCurrency(currentTicketMedio)}
-              accumulatedValue={formatCurrency(totalAccTicketMedio)}
-              changePercent={changeTicketMedio}
               comparisonLabel={compLabel}
             />
             <MetricCard
@@ -212,6 +243,20 @@ export default function App() {
               comparisonLabel={compLabel}
             />
             <MetricCard
+              label="Margem Bruta"
+              value={formatPercent(currentMargemBruta)}
+              accumulatedValue={formatPercent(totalAccMargemBruta)}
+              changePercent={changeMargemBruta}
+              comparisonLabel={compLabel}
+            />
+            <MetricCard
+              label="Ticket Médio"
+              value={formatCurrency(currentTicketMedio)}
+              accumulatedValue={formatCurrency(totalAccTicketMedio)}
+              changePercent={changeTicketMedio}
+              comparisonLabel={compLabel}
+            />
+            <MetricCard
               label="Lucro Bruto Médio"
               value={formatCurrency(currentLucroBrutoMedio)}
               accumulatedValue={formatCurrency(totalAccLucroBrutoMedio)}
@@ -219,17 +264,17 @@ export default function App() {
               comparisonLabel={compLabel}
             />
             <MetricCard
-              label="Margem Bruta"
-              value={formatPercent(currentMargemBruta)}
-              accumulatedValue={formatPercent(totalAccMargemBruta)}
-              changePercent={changeMargemBruta}
+              label="Investimento"
+              value={formatCurrency(currentInvestimento)}
+              accumulatedValue={formatCurrency(totalAccInvestimento)}
+              changePercent={changeInvestimento}
               comparisonLabel={compLabel}
             />
           </div>
 
           {/* Middle Row: Funnel (Left) & Financial Combo Chart (Right) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch pt-2">
-            {/* Left: Funnel Chart with 6 stages */}
+            {/* Left: Funnel Chart with 6 stages & daily variation comparison */}
             <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-100 flex flex-col justify-center">
               <FunnelChart
                 impressoes={currentImpressoes}
@@ -238,6 +283,8 @@ export default function App() {
                 contatos={currentContatos}
                 orcamentos={currentOrcamentos}
                 vendas={currentVendas}
+                previousCounts={funnelPreviousCounts}
+                comparisonLabel={compLabel}
               />
             </div>
 

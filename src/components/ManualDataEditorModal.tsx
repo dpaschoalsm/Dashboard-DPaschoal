@@ -52,6 +52,7 @@ export const ManualDataEditorModal: React.FC<ManualDataEditorModalProps> = ({
       vendas: 100,
       faturamento: 150000,
       lucroBruto: 50000,
+      investimento: 25000,
     };
     setEditedPeriods((prev) => [...prev, newPeriod]);
     setSelectedIdx(editedPeriods.length);
@@ -218,6 +219,19 @@ export const ManualDataEditorModal: React.FC<ManualDataEditorModalProps> = ({
 
             <div className="col-span-1 sm:col-span-1">
               <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Investimento (R$)
+              </label>
+              <input
+                type="number"
+                step="any"
+                value={current.investimento ?? 0}
+                onChange={(e) => handleFieldChange('investimento', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#DC2626] outline-none text-sm font-semibold text-purple-700"
+              />
+            </div>
+
+            <div className="col-span-1 sm:col-span-1">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Faturamento (R$)
               </label>
               <input
@@ -229,7 +243,7 @@ export const ManualDataEditorModal: React.FC<ManualDataEditorModalProps> = ({
               />
             </div>
 
-            <div className="col-span-1 sm:col-span-2">
+            <div className="col-span-1 sm:col-span-1">
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Lucro Bruto (R$)
               </label>

@@ -15,6 +15,7 @@ export const DEFAULT_PERIODS: PeriodData[] = [
     vendas: 246,
     faturamento: 321415,
     lucroBruto: 110000,
+    investimento: 45000,
     contatoParaOrcamento: 23.84,
     orcamentoParaVenda: 17.88,
     contatoParaVenda: 4.26,
@@ -33,6 +34,7 @@ export const DEFAULT_PERIODS: PeriodData[] = [
     vendas: 254,
     faturamento: 328379,
     lucroBruto: 116922,
+    investimento: 42000,
     contatoParaOrcamento: 116.53,
     orcamentoParaVenda: 17.66,
     contatoParaVenda: 20.58,
@@ -192,6 +194,16 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     colLucro = findColIndex((h) => h.includes('lucro') && !isRateHeader(h));
   }
 
+  // Investimento (Investment / Ads Spend)
+  let colInvestimento = findColIndex((h) =>
+    h === 'investimento' || h === 'investimentos' || h === 'investimento total' || h === 'valor investido' || h === 'gasto' || h === 'gastos' || h === 'custo' || h === 'spend' || h === 'ads'
+  );
+  if (colInvestimento === -1) {
+    colInvestimento = findColIndex((h) =>
+      (h.includes('invest') || h.includes('gasto') || h.includes('custo') || h.includes('spend') || h.includes('ads')) && !isRateHeader(h)
+    );
+  }
+
   const periods: PeriodData[] = [];
 
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
@@ -212,6 +224,7 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     const vendas = colVendas !== -1 ? parsePtBrNumber(row[colVendas]) : 0;
     const faturamento = colFaturamento !== -1 ? parsePtBrNumber(row[colFaturamento]) : 0;
     const lucroBruto = colLucro !== -1 ? parsePtBrNumber(row[colLucro]) : 0;
+    const investimento = colInvestimento !== -1 ? parsePtBrNumber(row[colInvestimento]) : 0;
 
     // Rates (if in Excel or computed)
     const contatoParaOrcamento = parsePercentageVal(
@@ -253,6 +266,7 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
       vendas,
       faturamento,
       lucroBruto,
+      investimento,
       contatoParaOrcamento,
       orcamentoParaVenda,
       contatoParaVenda,
@@ -302,7 +316,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): PeriodData[] {
 }
 
 export function generateSampleExcelCSV(): string {
-  return `Data;Impressões;Alcance;Click;Contatos;Orçamentos;Vendas;Faturamento;Lucro Bruto;Contato → Orçamento;Orçamento → Venda;Contato → Venda;Margem Bruta;Ticket médio por venda;Lucro bruto médio/venda
-08/07 a 05/08;33333;22222;11111;5.773;1.376;246;R$ 321.415;R$ 110.000;23,84%;17,88%;4,26%;34,22%;R$ 1.306,57;R$ 447,15
-06/ago;33333;22222;11111;1234;1438;254;R$ 328.379;R$ 116.922;116,53%;17,66%;20,58%;35,61%;R$ 1.292,83;R$ 460,32`;
+  return `Data;Impressões;Alcance;Click;Contatos;Orçamentos;Vendas;Faturamento;Lucro Bruto;Investimento;Contato → Orçamento;Orçamento → Venda;Contato → Venda;Margem Bruta;Ticket médio por venda;Lucro bruto médio/venda
+08/07 a 05/08;33333;22222;11111;5.773;1.376;246;R$ 321.415;R$ 110.000;R$ 45.000;23,84%;17,88%;4,26%;34,22%;R$ 1.306,57;R$ 447,15
+06/ago;33333;22222;11111;1234;1438;254;R$ 328.379;R$ 116.922;R$ 42.000;116,53%;17,66%;20,58%;35,61%;R$ 1.292,83;R$ 460,32`;
 }
