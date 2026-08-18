@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PeriodData } from './types';
-import { DEFAULT_PERIODS } from './utils/csvParser';
+import { DEFAULT_PERIODS, parseMatrixToPeriods } from './utils/csvParser';
 import { formatCurrency, formatPercent } from './utils/formatters';
 import { MetricCard } from './components/MetricCard';
 import { FunnelChart } from './components/FunnelChart';
@@ -9,19 +9,132 @@ import { ConversionChart } from './components/ConversionChart';
 import { ExportHeader } from './components/ExportHeader';
 import { CsvUploaderModal } from './components/CsvUploaderModal';
 import { ManualDataEditorModal } from './components/ManualDataEditorModal';
-import { Calendar, Layers } from 'lucide-react';
+import { SharepointSyncModal, DEFAULT_SHAREPOINT_LINK } from './components/SharepointSyncModal';
+import { Calendar, Layers, Cloud, CheckCircle2, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
-  const [periods, setPeriods] = useState<PeriodData[]>(DEFAULT_PERIODS);
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(DEFAULT_PERIODS[0].id);
+  const [periods, setPeriods] = useState<PeriodData[]>(() => {
+    try {
+      const saved = localStorage.getItem('dpaschoal_dashboard_periods');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_PERIODS;
+  });
+
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(() => {
+    return periods[0]?.id || DEFAULT_PERIODS[0].id;
+  });
+
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSharepointModalOpen, setIsSharepointModalOpen] = useState(false);
+
+  // SharePoint configuration state
+  const [sharepointUrl, setSharepointUrl] = useState<string>(() => {
+    return localStorage.getItem('dpaschoal_sharepoint_url') || DEFAULT_SHAREPOINT_LINK;
+  });
+
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
+    return localStorage.getItem('dpaschoal_last_sync_time') || null;
+  });
+
+  const [autoSyncOnLoad, setAutoSyncOnLoad] = useState<boolean>(() => {
+    const val = localStorage.getItem('dpaschoal_autosync_onload');
+    return val === 'true';
+  });
+
+  const [isSyncingSharepoint, setIsSyncingSharepoint] = useState(false);
+  const [syncToast, setSyncToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
+
+  // Save periods to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('dpaschoal_dashboard_periods', JSON.stringify(periods));
+    } catch {
+      // ignore
+    }
+  }, [periods]);
+
+  const handleSaveSharepointUrl = (url: string) => {
+    setSharepointUrl(url);
+    localStorage.setItem('dpaschoal_sharepoint_url', url);
+  };
+
+  const handleToggleAutoSync = (enabled: boolean) => {
+    setAutoSyncOnLoad(enabled);
+    localStorage.setItem('dpaschoal_autosync_onload', String(enabled));
+  };
+
+  const handleQuickSyncSharepoint = async () => {
+    try {
+      setIsSyncingSharepoint(true);
+      setSyncToast(null);
+
+      const targetUrl = sharepointUrl || DEFAULT_SHAREPOINT_LINK;
+      const response = await fetch('/api/sync-sharepoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: targetUrl }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Falha na resposta do servidor.');
+      }
+
+      if (!data.rows || data.rows.length === 0) {
+        throw new Error('Planilha sem linhas de dados.');
+      }
+
+      const parsedPeriods = parseMatrixToPeriods(data.rows);
+      setPeriods(parsedPeriods);
+      if (parsedPeriods.length > 0) {
+        setSelectedPeriodId(parsedPeriods[0].id);
+      }
+
+      const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      setLastSyncTime(timeStr);
+      localStorage.setItem('dpaschoal_last_sync_time', timeStr);
+
+      setSyncToast({
+        type: 'success',
+        message: `Planilha sincronizada! ${parsedPeriods.length} período(s) atualizados com sucesso da aba "${data.sheetName}".`,
+      });
+
+      // Auto dismiss success toast after 5s
+      setTimeout(() => {
+        setSyncToast((prev) => (prev?.type === 'success' ? null : prev));
+      }, 5000);
+    } catch (err: any) {
+      console.error('Erro na sincronização rápida do SharePoint:', err);
+      setSyncToast({
+        type: 'error',
+        message: `Erro ao sincronizar SharePoint: ${err.message || 'Verifique o link ou a conexão.'}`,
+      });
+    } finally {
+      setIsSyncingSharepoint(false);
+    }
+  };
+
+  // Auto-sync on mount if enabled
+  useEffect(() => {
+    if (autoSyncOnLoad) {
+      handleQuickSyncSharepoint();
+    }
+  }, []);
 
   const handleReset = () => {
     setPeriods(DEFAULT_PERIODS);
     setSelectedPeriodId(DEFAULT_PERIODS[0].id);
+    localStorage.removeItem('dpaschoal_dashboard_periods');
   };
 
   // Get current active metrics (either single period or total consolidated)
@@ -70,14 +183,6 @@ export default function App() {
   let changeLucroBrutoMedio: number | null = null;
   let changeMargemBruta: number | null = null;
   let compLabel = 'vs. ant.';
-  let funnelPreviousCounts: {
-    impressoes?: number | null;
-    alcance?: number | null;
-    click?: number | null;
-    contatos?: number | null;
-    orcamentos?: number | null;
-    vendas?: number | null;
-  } | null = null;
 
   if (isConsolidated) {
     currentImpressoes = periods.reduce((acc, p) => acc + p.impressoes, 0);
@@ -117,15 +222,6 @@ export default function App() {
       changeLucroBruto = prev.lucroBruto > 0 ? ((last.lucroBruto - prev.lucroBruto) / prev.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((lastLBM - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((lastMB - prevMB) / prevMB) * 100 : 0;
-
-      funnelPreviousCounts = {
-        impressoes: prev.impressoes,
-        alcance: prev.alcance,
-        click: prev.click,
-        contatos: prev.contatos,
-        orcamentos: prev.orcamentos,
-        vendas: prev.vendas,
-      };
     }
   } else {
     const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
@@ -161,15 +257,6 @@ export default function App() {
       changeLucroBruto = prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
-
-      funnelPreviousCounts = {
-        impressoes: prevPeriod.impressoes,
-        alcance: prevPeriod.alcance,
-        click: prevPeriod.click,
-        contatos: prevPeriod.contatos,
-        orcamentos: prevPeriod.orcamentos,
-        vendas: prevPeriod.vendas,
-      };
     }
   }
 
@@ -180,8 +267,40 @@ export default function App() {
         exportRef={dashboardRef}
         onOpenCsvModal={() => setIsCsvModalOpen(true)}
         onOpenEditModal={() => setIsEditModalOpen(true)}
+        onOpenSharepointModal={() => setIsSharepointModalOpen(true)}
+        onQuickSyncSharepoint={handleQuickSyncSharepoint}
+        isSyncingSharepoint={isSyncingSharepoint}
+        lastSyncTime={lastSyncTime}
         onResetData={handleReset}
       />
+
+      {/* Sync Status Toast Banner */}
+      {syncToast && (
+        <div className="max-w-[1280px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-3">
+          <div
+            className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-2xs animate-in fade-in slide-in-from-top-2 duration-200 ${
+              syncToast.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}
+          >
+            <div className="flex items-center gap-2 font-medium">
+              {syncToast.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{syncToast.message}</span>
+            </div>
+            <button
+              onClick={() => setSyncToast(null)}
+              className="text-gray-400 hover:text-gray-700 p-1 rounded-md transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1280px] w-full mx-auto p-4 sm:p-6 lg:p-8">
@@ -274,7 +393,7 @@ export default function App() {
 
           {/* Middle Row: Funnel (Left) & Financial Combo Chart (Right) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch pt-2">
-            {/* Left: Funnel Chart with 6 stages & daily variation comparison */}
+            {/* Left: Funnel Chart with 6 stages */}
             <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-100 flex flex-col justify-center">
               <FunnelChart
                 impressoes={currentImpressoes}
@@ -283,8 +402,6 @@ export default function App() {
                 contatos={currentContatos}
                 orcamentos={currentOrcamentos}
                 vendas={currentVendas}
-                previousCounts={funnelPreviousCounts}
-                comparisonLabel={compLabel}
               />
             </div>
 
@@ -324,6 +441,26 @@ export default function App() {
         periods={periods}
         onSave={(newPeriods) => {
           setPeriods(newPeriods);
+        }}
+      />
+
+      <SharepointSyncModal
+        isOpen={isSharepointModalOpen}
+        onClose={() => setIsSharepointModalOpen(false)}
+        currentUrl={sharepointUrl}
+        onSaveUrl={handleSaveSharepointUrl}
+        lastSyncTime={lastSyncTime}
+        autoSyncOnLoad={autoSyncOnLoad}
+        onToggleAutoSync={handleToggleAutoSync}
+        onDataLoaded={(newPeriods, info) => {
+          setPeriods(newPeriods);
+          if (newPeriods.length > 0) {
+            setSelectedPeriodId(newPeriods[0].id);
+          }
+          if (info?.syncTime) {
+            setLastSyncTime(info.syncTime);
+            localStorage.setItem('dpaschoal_last_sync_time', info.syncTime);
+          }
         }}
       />
     </div>

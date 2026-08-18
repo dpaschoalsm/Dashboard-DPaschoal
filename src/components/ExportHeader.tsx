@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Download, Upload, Edit3, RotateCcw, TrendingUp } from 'lucide-react';
+import { Download, Upload, Edit3, RotateCcw, TrendingUp, Cloud, RefreshCw } from 'lucide-react';
 import { toPng } from 'html-to-image';
 
 interface ExportHeaderProps {
   exportRef: React.RefObject<HTMLDivElement | null>;
   onOpenCsvModal: () => void;
   onOpenEditModal: () => void;
+  onOpenSharepointModal: () => void;
+  onQuickSyncSharepoint: () => void;
+  isSyncingSharepoint?: boolean;
+  lastSyncTime?: string | null;
   onResetData: () => void;
 }
 
@@ -13,6 +17,10 @@ export const ExportHeader: React.FC<ExportHeaderProps> = ({
   exportRef,
   onOpenCsvModal,
   onOpenEditModal,
+  onOpenSharepointModal,
+  onQuickSyncSharepoint,
+  isSyncingSharepoint = false,
+  lastSyncTime,
   onResetData,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
@@ -62,38 +70,58 @@ export const ExportHeader: React.FC<ExportHeaderProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+          {/* SharePoint Sync Button Group */}
+          <div className="flex items-center rounded-lg border border-blue-200 bg-blue-50/60 p-0.5 shadow-2xs">
+            <button
+              onClick={onQuickSyncSharepoint}
+              disabled={isSyncingSharepoint}
+              title={lastSyncTime ? `Atualizar agora do SharePoint (Última: ${lastSyncTime})` : 'Sincronizar dados do SharePoint'}
+              className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-100/70 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncingSharepoint ? 'animate-spin' : ''}`} />
+              <span>{isSyncingSharepoint ? 'Sincronizando...' : 'Atualizar SharePoint'}</span>
+            </button>
+            <button
+              onClick={onOpenSharepointModal}
+              title="Configurações do link do SharePoint"
+              className="px-1.5 py-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100/70 rounded-md transition-colors border-l border-blue-200"
+            >
+              <Cloud className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <button
             onClick={onResetData}
-            title="Restaurar dados originais da imagem"
-            className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1.5 border border-gray-200"
+            title="Restaurar dados originais"
+            className="px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1.5 border border-gray-200"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Restaurar</span> Padrão
+            <span className="hidden md:inline">Restaurar</span>
           </button>
 
           <button
             onClick={onOpenEditModal}
-            className="px-3.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 bg-gray-50 border border-gray-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
+            className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 bg-gray-50 border border-gray-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs"
           >
             <Edit3 className="w-3.5 h-3.5 text-[#DC2626]" />
-            Editar Dados
+            Editar
           </button>
 
           <button
             onClick={onOpenCsvModal}
-            className="px-3.5 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-100 bg-white border border-gray-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs hover:border-[#DC2626]"
+            className="px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-100 bg-white border border-gray-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs hover:border-[#DC2626]"
           >
             <Upload className="w-3.5 h-3.5 text-[#DC2626]" />
-            Subir Planilha CSV
+            Upload Manual
           </button>
 
           <button
             onClick={handleExportPng}
             disabled={isExporting}
-            className="px-4 py-1.5 text-xs font-semibold text-white bg-[#DC2626] hover:bg-[#B91C1C] active:scale-95 rounded-lg transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#DC2626] hover:bg-[#B91C1C] active:scale-95 rounded-lg transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5" />
-            {isExporting ? 'Gerando PNG...' : 'Exportar em PNG'}
+            {isExporting ? 'Exportando...' : 'Exportar PNG'}
           </button>
         </div>
       </div>

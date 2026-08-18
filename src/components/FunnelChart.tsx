@@ -1,15 +1,5 @@
 import React, { useState } from 'react';
 import { formatNumber, formatPercent } from '../utils/formatters';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
-
-export interface PreviousStageCounts {
-  impressoes?: number | null;
-  alcance?: number | null;
-  click?: number | null;
-  contatos?: number | null;
-  orcamentos?: number | null;
-  vendas?: number | null;
-}
 
 interface FunnelChartProps {
   impressoes: number;
@@ -18,8 +8,6 @@ interface FunnelChartProps {
   contatos: number;
   orcamentos: number;
   vendas: number;
-  previousCounts?: PreviousStageCounts | null;
-  comparisonLabel?: string;
 }
 
 export const FunnelChart: React.FC<FunnelChartProps> = ({
@@ -29,105 +17,71 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
   contatos,
   orcamentos,
   vendas,
-  previousCounts,
-  comparisonLabel = 'vs. ant.',
 }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const maxValue = Math.max(impressoes, alcance, click, contatos, orcamentos, vendas, 1);
 
   const stages = [
-    {
-      name: 'Impressões',
-      count: impressoes,
-      prevCount: previousCounts?.impressoes,
-    },
-    {
-      name: 'Alcance',
-      count: alcance,
-      prevCount: previousCounts?.alcance,
-    },
-    {
-      name: 'Click',
-      count: click,
-      prevCount: previousCounts?.click,
-    },
-    {
-      name: 'Contatos',
-      count: contatos,
-      prevCount: previousCounts?.contatos,
-    },
-    {
-      name: 'Orçamentos',
-      count: orcamentos,
-      prevCount: previousCounts?.orcamentos,
-    },
-    {
-      name: 'Vendas',
-      count: vendas,
-      prevCount: previousCounts?.vendas,
-    },
+    { name: 'Impressões', count: impressoes },
+    { name: 'Alcance', count: alcance },
+    { name: 'Click', count: click },
+    { name: 'Contatos', count: contatos },
+    { name: 'Orçamentos', count: orcamentos },
+    { name: 'Vendas', count: vendas },
   ];
 
-  const getStageChange = (count: number, prevCount?: number | null): number | null => {
-    if (prevCount === undefined || prevCount === null) return null;
-    if (prevCount === 0) return count > 0 ? 100 : 0;
-    return ((count - prevCount) / prevCount) * 100;
+  // Helper to calculate conversion rate from previous stage
+  const getStageConversionRate = (idx: number, count: number): number => {
+    if (idx === 0) return 100;
+    const prevStage = stages[idx - 1];
+    if (!prevStage || prevStage.count === 0) return 0;
+    return (count / prevStage.count) * 100;
   };
 
-  const getStageTooltipText = (idx: number, count: number, prevCount?: number | null) => {
-    const change = getStageChange(count, prevCount);
-
+  const getStageTooltipText = (idx: number, count: number) => {
     if (idx === 0) {
       return {
-        mainInfo: 'Topo do Funil',
-        detail: 'Volume total de exibição dos anúncios',
-        change,
+        mainInfo: '100% • Topo do Funil',
+        detail: 'Volume total de visualizações de anúncios',
       };
     }
 
     const prevStage = stages[idx - 1];
-    const prevStageCount = prevStage.count;
-    const convRate = prevStageCount > 0 ? (count / prevStageCount) * 100 : 0;
+    const convRate = getStageConversionRate(idx, count);
 
     switch (idx) {
       case 1: // Alcance
         return {
           mainInfo: `${formatPercent(convRate)} de aproveitamento das impressões`,
           detail: 'Proporção de pessoas únicas alcançadas',
-          change,
         };
       case 2: // Click
         return {
           mainInfo: `${formatPercent(convRate)} de taxa de clique (CTR)`,
           detail: 'Percentual de pessoas alcançadas que clicaram',
-          change,
         };
       case 3: // Contatos
         return {
           mainInfo: `${formatPercent(convRate)} dos cliques viraram contatos`,
           detail: 'Conversão de visitantes para início de conversa',
-          change,
         };
       case 4: // Orçamentos
         return {
           mainInfo: `${formatPercent(convRate)} dos contatos pediram orçamento`,
           detail: 'Conversão de contatos em orçamentos gerados',
-          change,
         };
       case 5: { // Vendas
         const finalConv = contatos > 0 ? (count / contatos) * 100 : 0;
         return {
           mainInfo: `${formatPercent(convRate)} dos orçamentos viraram vendas`,
           detail: `Taxa final de fechamento: ${formatPercent(finalConv)} dos contatos fecharam negócio`,
-          change,
         };
       }
       default:
         return {
           mainInfo: `${formatPercent(convRate)} de conversão`,
           detail: `Relação com a etapa de ${prevStage.name}`,
-          change,
         };
     }
   };
@@ -139,11 +93,9 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
           <h3 className="text-sm font-semibold text-gray-800">
             Funil de Conversão
           </h3>
-          {previousCounts && (
-            <span className="text-[10px] font-semibold bg-red-50 text-[#DC2626] px-2 py-0.5 rounded-md border border-red-200">
-              Variação {comparisonLabel}
-            </span>
-          )}
+          <span className="text-[10px] font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md border border-gray-200">
+            Taxa de Conversão
+          </span>
         </div>
         <span className="text-[11px] text-gray-400 font-medium hidden sm:inline-block">
           Passe o mouse sobre as etapas para detalhes
@@ -159,11 +111,8 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
 
           const isHovered = hoveredIndex === idx;
           const isNarrow = rawPct < 14;
-          const tooltip = getStageTooltipText(idx, stage.count, stage.prevCount);
-          const change = getStageChange(stage.count, stage.prevCount);
-
-          const isPositive = change !== null && change > 0;
-          const isNegative = change !== null && change < 0;
+          const tooltip = getStageTooltipText(idx, stage.count);
+          const convRate = getStageConversionRate(idx, stage.count);
 
           return (
             <div
@@ -209,53 +158,30 @@ export const FunnelChart: React.FC<FunnelChartProps> = ({
                 )}
               </div>
 
-              {/* Variation vs previous day badge on right */}
+              {/* Step-by-Step Conversion Rate badge on right */}
               <div className="w-24 sm:w-28 pl-2 flex justify-end items-center shrink-0">
-                {change !== null ? (
-                  <div
-                    className={`inline-flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 rounded-full font-bold text-[10px] whitespace-nowrap shadow-2xs transition-transform ${
-                      isPositive
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : isNegative
-                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                        : 'bg-gray-100 text-gray-600 border border-gray-200'
-                    }`}
-                    title={stage.prevCount !== undefined && stage.prevCount !== null ? `Anterior: ${formatNumber(stage.prevCount)}` : ''}
-                  >
-                    {isPositive && <TrendingUp className="w-3 h-3 stroke-[2.5]" />}
-                    {isNegative && <TrendingDown className="w-3 h-3 stroke-[2.5]" />}
-                    {!isPositive && !isNegative && <Minus className="w-3 h-3" />}
-                    <span>
-                      {isPositive ? '+' : ''}
-                      {change.toFixed(1).replace('.', ',')}%
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-gray-300 font-medium select-none">—</span>
-                )}
+                <div
+                  className={`inline-flex items-center px-2 py-1 rounded-lg font-bold text-xs whitespace-nowrap shadow-2xs transition-all ${
+                    idx === 0
+                      ? 'bg-gray-100 text-gray-700 border border-gray-200 font-semibold'
+                      : 'bg-red-50 text-[#DC2626] border border-red-200'
+                  }`}
+                  title={tooltip.mainInfo}
+                >
+                  <span>{formatPercent(convRate)}</span>
+                </div>
               </div>
 
               {/* Hover Tooltip Popup */}
               {isHovered && (
-                <div className="absolute left-1/2 -top-20 -translate-x-1/2 z-30 bg-gray-900 text-white p-2.5 rounded-xl shadow-xl text-xs whitespace-nowrap pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-gray-700 min-w-[240px]">
+                <div className="absolute left-1/2 -top-18 -translate-x-1/2 z-30 bg-gray-900 text-white p-2.5 rounded-xl shadow-xl text-xs whitespace-nowrap pointer-events-none animate-in fade-in zoom-in-95 duration-150 border border-gray-700 min-w-[230px]">
                   <div className="font-bold text-red-400 mb-1 border-b border-gray-700/80 pb-1 flex items-center justify-between gap-3">
                     <span>{stage.name}</span>
                     <span className="text-white font-extrabold">{formatNumber(stage.count)}</span>
                   </div>
-                  <div className="space-y-1 text-[11px]">
+                  <div className="space-y-0.5 text-[11px]">
                     <div className="font-semibold text-emerald-400">{tooltip.mainInfo}</div>
                     <div className="text-gray-300 text-[10px]">{tooltip.detail}</div>
-                    
-                    {stage.prevCount !== undefined && stage.prevCount !== null && (
-                      <div className="pt-1 border-t border-gray-800 flex items-center justify-between text-[10px] text-gray-400">
-                        <span>Anterior ({comparisonLabel}): <strong className="text-gray-200">{formatNumber(stage.prevCount)}</strong></span>
-                        {change !== null && (
-                          <span className={`font-bold ${isPositive ? 'text-emerald-400' : isNegative ? 'text-rose-400' : 'text-gray-300'}`}>
-                            {isPositive ? '+' : ''}{change.toFixed(2).replace('.', ',')}%
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                   {/* Tooltip arrow */}
                   <div className="absolute left-1/2 -bottom-1 -translate-x-1/2 w-2 h-2 bg-gray-900 rotate-45 border-r border-b border-gray-700" />
