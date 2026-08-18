@@ -27,10 +27,23 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
   autoSyncOnLoad,
   onToggleAutoSync,
 }) => {
-  const [urlInput, setUrlInput] = useState(currentUrl || DEFAULT_SHAREPOINT_LINK);
+  const [urlInput, setUrlInput] = useState(() => {
+    if (currentUrl && !currentUrl.includes('eeYERK')) return currentUrl;
+    return DEFAULT_SHAREPOINT_LINK;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (currentUrl) {
+      if (currentUrl.includes('eeYERK')) {
+        setUrlInput(DEFAULT_SHAREPOINT_LINK);
+      } else {
+        setUrlInput(currentUrl);
+      }
+    }
+  }, [currentUrl, isOpen]);
 
   if (!isOpen) return null;
 

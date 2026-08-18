@@ -36,7 +36,12 @@ export default function App() {
 
   // SharePoint configuration state
   const [sharepointUrl, setSharepointUrl] = useState<string>(() => {
-    return localStorage.getItem('dpaschoal_sharepoint_url') || DEFAULT_SHAREPOINT_LINK;
+    const saved = localStorage.getItem('dpaschoal_sharepoint_url');
+    if (saved && !saved.includes('eeYERK')) {
+      return saved;
+    }
+    localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SHAREPOINT_LINK);
+    return DEFAULT_SHAREPOINT_LINK;
   });
 
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
@@ -63,8 +68,9 @@ export default function App() {
   }, [periods]);
 
   const handleSaveSharepointUrl = (url: string) => {
-    setSharepointUrl(url);
-    localStorage.setItem('dpaschoal_sharepoint_url', url);
+    const cleanUrl = url.trim() || DEFAULT_SHAREPOINT_LINK;
+    setSharepointUrl(cleanUrl);
+    localStorage.setItem('dpaschoal_sharepoint_url', cleanUrl);
   };
 
   const handleToggleAutoSync = (enabled: boolean) => {
@@ -77,7 +83,13 @@ export default function App() {
       setIsSyncingSharepoint(true);
       setSyncToast(null);
 
-      const targetUrl = sharepointUrl || DEFAULT_SHAREPOINT_LINK;
+      let targetUrl = (sharepointUrl || DEFAULT_SHAREPOINT_LINK).trim();
+      if (targetUrl.includes('eeYERK')) {
+        targetUrl = DEFAULT_SHAREPOINT_LINK;
+        setSharepointUrl(DEFAULT_SHAREPOINT_LINK);
+        localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SHAREPOINT_LINK);
+      }
+
       const response = await fetch('/api/sync-sharepoint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
