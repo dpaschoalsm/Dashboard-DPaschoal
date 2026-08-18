@@ -42,7 +42,7 @@ export default function App() {
   // Spreadsheet configuration state
   const [sharepointUrl, setSharepointUrl] = useState<string>(() => {
     const saved = localStorage.getItem('dpaschoal_sharepoint_url');
-    if (saved && !saved.includes('eeYERK')) {
+    if (saved && !saved.includes('eeYERK') && !saved.includes('bh8fTe') && saved.includes('jpaBrg')) {
       return saved;
     }
     localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SPREADSHEET_LINK);

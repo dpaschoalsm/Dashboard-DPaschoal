@@ -2,10 +2,10 @@ import Papa from 'papaparse';
 import { PeriodData } from '../types';
 import { parseMatrixToPeriods } from './csvParser';
 
-export const DEFAULT_SPREADSHEET_LINK =
-  'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
+export const DEFAULT_SHAREPOINT_LINK =
+  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=jpaBrg';
 
-export const DEFAULT_SHAREPOINT_LINK = DEFAULT_SPREADSHEET_LINK;
+export const DEFAULT_SPREADSHEET_LINK = DEFAULT_SHAREPOINT_LINK;
 
 export interface SyncResult {
   periods: PeriodData[];

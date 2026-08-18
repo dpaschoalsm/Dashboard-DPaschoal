@@ -8,9 +8,9 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Default saved spreadsheet URL provided by user (Google Sheets / SharePoint)
+// Default saved spreadsheet URL provided by user (SharePoint / Google Sheets)
 const DEFAULT_SPREADSHEET_URL =
-  'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
+  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=jpaBrg';
 
 /**
  * Downloads a spreadsheet from Google Sheets

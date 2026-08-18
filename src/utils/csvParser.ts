@@ -86,7 +86,7 @@ export function formatDateCell(cellVal: any): string {
 }
 
 /**
- * Helper to parse percentage cells (converting Excel decimal fractions like 0.3957 to 39.57)
+ * Helper to parse percentage cells (converting Excel decimal fractions like 0.3957 to 39.57 or 1.4884 to 148.84)
  */
 export function parsePercentageVal(val: any, fallbackCalc: () => number): number {
   if (val === undefined || val === null || String(val).trim() === '') {
@@ -95,8 +95,8 @@ export function parsePercentageVal(val: any, fallbackCalc: () => number): number
 
   if (typeof val === 'number') {
     if (isNaN(val)) return fallbackCalc();
-    // Excel stores percentages as decimal fractions (e.g. 0.3957 for 39.57%)
-    if (Math.abs(val) <= 1.0 && val !== 0) {
+    // Excel stores percentages as decimal fractions (e.g. 0.3957 for 39.57%, 1.4884 for 148.84%)
+    if (Math.abs(val) <= 10.0 && val !== 0) {
       return val * 100;
     }
     return val;
@@ -105,8 +105,8 @@ export function parsePercentageVal(val: any, fallbackCalc: () => number): number
   const str = String(val).trim();
   const num = parsePtBrNumber(str);
 
-  // If string was a raw decimal number <= 1 without '%' (e.g. "0.3957")
-  if (!str.includes('%') && Math.abs(num) <= 1.0 && num !== 0) {
+  // If string was a raw decimal number without '%' (e.g. "0.3957" or "1.4884")
+  if (!str.includes('%') && Math.abs(num) <= 10.0 && num !== 0) {
     return num * 100;
   }
 

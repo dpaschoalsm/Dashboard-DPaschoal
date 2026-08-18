@@ -31,7 +31,7 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
   onToggleAutoSync,
 }) => {
   const [urlInput, setUrlInput] = useState(() => {
-    if (currentUrl && !currentUrl.includes('eeYERK')) return currentUrl;
+    if (currentUrl && !currentUrl.includes('eeYERK') && !currentUrl.includes('bh8fTe')) return currentUrl;
     return DEFAULT_SPREADSHEET_LINK;
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -40,7 +40,7 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
 
   useEffect(() => {
     if (currentUrl) {
-      if (currentUrl.includes('eeYERK')) {
+      if (currentUrl.includes('eeYERK') || currentUrl.includes('bh8fTe')) {
         setUrlInput(DEFAULT_SPREADSHEET_LINK);
       } else {
         setUrlInput(currentUrl);
