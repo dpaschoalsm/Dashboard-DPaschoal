@@ -10,19 +10,18 @@ import { ExportHeader } from './components/ExportHeader';
 import { CsvUploaderModal } from './components/CsvUploaderModal';
 import { ManualDataEditorModal } from './components/ManualDataEditorModal';
 import {
+  DateRangePicker,
+  DateFilterSelection,
+} from './components/DateRangePicker';
+import {
   SharepointSyncModal,
   DEFAULT_SPREADSHEET_LINK,
 } from './components/SharepointSyncModal';
 import { fetchAndParseOnlineSpreadsheet } from './utils/spreadsheetSync';
 import {
-  Calendar,
-  Layers,
   CheckCircle2,
   AlertCircle,
   X,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 
 export default function App() {
@@ -39,15 +38,17 @@ export default function App() {
     return DEFAULT_PERIODS;
   });
 
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(() => {
+  const [dateSelection, setDateSelection] = useState<DateFilterSelection>(() => {
     try {
-      const savedId = localStorage.getItem('dpaschoal_selected_period_id');
-      if (savedId) return savedId;
+      const saved = localStorage.getItem('dpaschoal_date_selection');
+      if (saved) {
+        return JSON.parse(saved);
+      }
     } catch {
       // ignore
     }
-    // Default to the latest period if available, otherwise first
-    return periods.length > 0 ? periods[periods.length - 1].id : DEFAULT_PERIODS[0].id;
+    const defaultLatest = DEFAULT_PERIODS[DEFAULT_PERIODS.length - 1]?.id || 'p2';
+    return { mode: 'single', periodId: defaultLatest };
   });
 
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -87,14 +88,36 @@ export default function App() {
     }
   }, [periods]);
 
-  // Save selected period id
+  // Save date selection to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('dpaschoal_selected_period_id', selectedPeriodId);
+      localStorage.setItem('dpaschoal_date_selection', JSON.stringify(dateSelection));
     } catch {
       // ignore
     }
-  }, [selectedPeriodId]);
+  }, [dateSelection]);
+
+  // Ensure date selection remains valid if periods change
+  useEffect(() => {
+    if (periods.length === 0) return;
+
+    if (dateSelection.mode === 'single') {
+      const exists = periods.some((p) => p.id === dateSelection.periodId);
+      if (!exists) {
+        setDateSelection({ mode: 'single', periodId: periods[periods.length - 1].id });
+      }
+    } else if (dateSelection.mode === 'range') {
+      const startExists = periods.some((p) => p.id === dateSelection.startPeriodId);
+      const endExists = periods.some((p) => p.id === dateSelection.endPeriodId);
+      if (!startExists || !endExists) {
+        setDateSelection({
+          mode: 'range',
+          startPeriodId: periods[0].id,
+          endPeriodId: periods[periods.length - 1].id,
+        });
+      }
+    }
+  }, [periods]);
 
   const handleSaveSharepointUrl = (url: string) => {
     const cleanUrl = url.trim() || DEFAULT_SPREADSHEET_LINK;
@@ -120,9 +143,11 @@ export default function App() {
       }
 
       // Capture currently active date before updating
-      const previousSelectedPeriod = periods.find((p) => p.id === selectedPeriodId);
-      const previousDate = previousSelectedPeriod?.data;
-      const wasConsolidated = selectedPeriodId === 'consolidated';
+      let previousDate = '';
+      if (dateSelection.mode === 'single') {
+        const found = periods.find((p) => p.id === dateSelection.periodId);
+        if (found) previousDate = found.data;
+      }
       const previousCount = periods.length;
 
       const result = await fetchAndParseOnlineSpreadsheet(targetUrl);
@@ -130,28 +155,27 @@ export default function App() {
 
       let focusedPeriodName = '';
 
-      if (wasConsolidated) {
-        setSelectedPeriodId('consolidated');
+      if (dateSelection.mode === 'consolidated') {
         focusedPeriodName = 'Consolidado (Todos)';
       } else if (result.periods.length > previousCount) {
-        // A new row was added to the spreadsheet! Focus on the latest row.
+        // A new row was added to the spreadsheet! Focus on the newest row.
         const newest = result.periods[result.periods.length - 1];
-        setSelectedPeriodId(newest.id);
+        setDateSelection({ mode: 'single', periodId: newest.id });
         focusedPeriodName = `Novo período "${newest.data}"`;
       } else if (previousDate) {
         // Keep the exact same period date active so modifications are immediately visible!
         const matching = result.periods.find((p) => p.data === previousDate);
         if (matching) {
-          setSelectedPeriodId(matching.id);
+          setDateSelection({ mode: 'single', periodId: matching.id });
           focusedPeriodName = `Período "${matching.data}"`;
         } else if (result.periods.length > 0) {
           const latest = result.periods[result.periods.length - 1];
-          setSelectedPeriodId(latest.id);
+          setDateSelection({ mode: 'single', periodId: latest.id });
           focusedPeriodName = `Período "${latest.data}"`;
         }
       } else if (result.periods.length > 0) {
         const latest = result.periods[result.periods.length - 1];
-        setSelectedPeriodId(latest.id);
+        setDateSelection({ mode: 'single', periodId: latest.id });
         focusedPeriodName = `Período "${latest.data}"`;
       }
 
@@ -188,31 +212,15 @@ export default function App() {
 
   const handleReset = () => {
     setPeriods(DEFAULT_PERIODS);
-    setSelectedPeriodId(DEFAULT_PERIODS[DEFAULT_PERIODS.length - 1].id);
+    const lastP = DEFAULT_PERIODS[DEFAULT_PERIODS.length - 1];
+    setDateSelection({ mode: 'single', periodId: lastP.id });
     localStorage.removeItem('dpaschoal_dashboard_periods');
   };
-
-  // Get current active metrics (either single period or total consolidated)
-  const isConsolidated = selectedPeriodId === 'consolidated';
-
-  let currentImpressoes = 0;
-  let currentAlcance = 0;
-  let currentClick = 0;
-  let currentContatos = 0;
-  let currentOrcamentos = 0;
-  let currentVendas = 0;
-  let currentFaturamento = 0;
-  let currentLucroBruto = 0;
-  let currentInvestimento = 0;
-  let currentTicketMedio = 0;
-  let currentLucroBrutoMedio = 0;
-  let currentMargemBruta = 0;
 
   // Calculate overall accumulated totals across ALL days/periods
   const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
   const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
   const totalAccInvestimento = periods.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
-  const totalAccVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
 
   const totalAccTicketMedio =
     periods.length > 0
@@ -235,118 +243,108 @@ export default function App() {
         }, 0) / periods.length
       : 0;
 
-  // Variation vs previous period
+  // Compute active slice & previous slice based on dateSelection
+  let activeSlice: PeriodData[] = [];
+  let prevSlice: PeriodData[] = [];
+  let compLabel = 'vs. ant.';
+
+  if (dateSelection.mode === 'consolidated') {
+    activeSlice = periods;
+    if (periods.length >= 2) {
+      const last = periods[periods.length - 1];
+      const prev = periods[periods.length - 2];
+      prevSlice = [prev];
+      compLabel = 'último dia';
+    }
+  } else if (dateSelection.mode === 'single') {
+    const idx = periods.findIndex((p) => p.id === dateSelection.periodId);
+    const activeP = idx >= 0 ? periods[idx] : periods[periods.length - 1] || periods[0];
+    activeSlice = activeP ? [activeP] : [];
+    if (idx > 0) {
+      prevSlice = [periods[idx - 1]];
+      compLabel = `vs ${periods[idx - 1].data}`;
+    }
+  } else if (dateSelection.mode === 'range') {
+    const sIdx = periods.findIndex((p) => p.id === dateSelection.startPeriodId);
+    const eIdx = periods.findIndex((p) => p.id === dateSelection.endPeriodId);
+    const minIdx = Math.max(0, Math.min(sIdx, eIdx));
+    const maxIdx = Math.min(periods.length - 1, Math.max(sIdx, eIdx));
+    activeSlice = periods.slice(minIdx, maxIdx + 1);
+
+    const rangeLen = maxIdx - minIdx + 1;
+    const prevStartIdx = minIdx - rangeLen;
+    if (prevStartIdx >= 0) {
+      prevSlice = periods.slice(prevStartIdx, minIdx);
+      compLabel = 'vs. per. anterior';
+    } else if (minIdx > 0) {
+      prevSlice = periods.slice(0, minIdx);
+      compLabel = 'vs. período anterior';
+    }
+  }
+
+  // Active slice aggregations
+  const currentImpressoes = activeSlice.reduce((acc, p) => acc + p.impressoes, 0);
+  const currentAlcance = activeSlice.reduce((acc, p) => acc + p.alcance, 0);
+  const currentClick = activeSlice.reduce((acc, p) => acc + p.click, 0);
+  const currentContatos = activeSlice.reduce((acc, p) => acc + p.contatos, 0);
+  const currentOrcamentos = activeSlice.reduce((acc, p) => acc + p.orcamentos, 0);
+  const currentVendas = activeSlice.reduce((acc, p) => acc + p.vendas, 0);
+  const currentFaturamento = activeSlice.reduce((acc, p) => acc + p.faturamento, 0);
+  const currentLucroBruto = activeSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
+  const currentInvestimento = activeSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
+
+  const currentTicketMedio =
+    currentVendas > 0
+      ? currentFaturamento / currentVendas
+      : activeSlice.length > 0
+      ? activeSlice.reduce((acc, p) => acc + (p.ticketMedio ?? 0), 0) / activeSlice.length
+      : 0;
+
+  const currentLucroBrutoMedio =
+    currentVendas > 0
+      ? currentLucroBruto / currentVendas
+      : activeSlice.length > 0
+      ? activeSlice.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? 0), 0) / activeSlice.length
+      : 0;
+
+  const currentMargemBruta =
+    currentFaturamento > 0
+      ? (currentLucroBruto / currentFaturamento) * 100
+      : activeSlice.length > 0
+      ? activeSlice.reduce((acc, p) => {
+          let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+          if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
+          return acc + val;
+        }, 0) / activeSlice.length
+      : 0;
+
+  // Percentage changes vs previous slice
   let changeFaturamento: number | null = null;
   let changeInvestimento: number | null = null;
   let changeTicketMedio: number | null = null;
   let changeLucroBruto: number | null = null;
   let changeLucroBrutoMedio: number | null = null;
   let changeMargemBruta: number | null = null;
-  let compLabel = 'vs. ant.';
 
-  const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
+  if (prevSlice.length > 0) {
+    const prevFat = prevSlice.reduce((acc, p) => acc + p.faturamento, 0);
+    const prevLucro = prevSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
+    const prevInv = prevSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
+    const prevVendas = prevSlice.reduce((acc, p) => acc + p.vendas, 0);
+    const prevTM = prevVendas > 0 ? prevFat / prevVendas : 0;
+    const prevLBM = prevVendas > 0 ? prevLucro / prevVendas : 0;
+    const prevMB = prevFat > 0 ? (prevLucro / prevFat) * 100 : 0;
 
-  if (isConsolidated) {
-    currentImpressoes = periods.reduce((acc, p) => acc + p.impressoes, 0);
-    currentAlcance = periods.reduce((acc, p) => acc + p.alcance, 0);
-    currentClick = periods.reduce((acc, p) => acc + p.click, 0);
-    currentContatos = periods.reduce((acc, p) => acc + p.contatos, 0);
-    currentOrcamentos = periods.reduce((acc, p) => acc + p.orcamentos, 0);
-    currentVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
-    currentFaturamento = totalAccFaturamento;
-    currentLucroBruto = totalAccLucroBruto;
-    currentInvestimento = totalAccInvestimento;
-    currentTicketMedio = totalAccTicketMedio;
-    currentLucroBrutoMedio = totalAccLucroBrutoMedio;
-    currentMargemBruta = totalAccMargemBruta;
-
-    if (periods.length >= 2) {
-      const last = periods[periods.length - 1];
-      const prev = periods[periods.length - 2];
-      compLabel = 'último per.';
-
-      const lastTM = last.ticketMedio ?? (last.vendas > 0 ? last.faturamento / last.vendas : 0);
-      const prevTM = prev.ticketMedio ?? (prev.vendas > 0 ? prev.faturamento / prev.vendas : 0);
-      const lastLBM = last.lucroBrutoMedio ?? (last.vendas > 0 ? last.lucroBruto / last.vendas : 0);
-      const prevLBM = prev.lucroBrutoMedio ?? (prev.vendas > 0 ? prev.lucroBruto / prev.vendas : 0);
-      let lastMB = last.margemBruta ?? (last.faturamento > 0 ? (last.lucroBruto / last.faturamento) * 100 : 0);
-      if (Math.abs(lastMB) <= 1.0 && lastMB !== 0) lastMB *= 100;
-      let prevMB = prev.margemBruta ?? (prev.faturamento > 0 ? (prev.lucroBruto / prev.faturamento) * 100 : 0);
-      if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
-
-      const lastInv = last.investimento ?? 0;
-      const prevInv = prev.investimento ?? 0;
-
-      changeFaturamento = prev.faturamento > 0 ? ((last.faturamento - prev.faturamento) / prev.faturamento) * 100 : 0;
-      changeInvestimento = prevInv > 0 ? ((lastInv - prevInv) / prevInv) * 100 : lastInv > 0 ? 100 : 0;
-      changeTicketMedio = prevTM > 0 ? ((lastTM - prevTM) / prevTM) * 100 : 0;
-      changeLucroBruto = prev.lucroBruto > 0 ? ((last.lucroBruto - prev.lucroBruto) / prev.lucroBruto) * 100 : 0;
-      changeLucroBrutoMedio = prevLBM > 0 ? ((lastLBM - prevLBM) / prevLBM) * 100 : 0;
-      changeMargemBruta = prevMB > 0 ? ((lastMB - prevMB) / prevMB) * 100 : 0;
-    }
-  } else {
-    const activePeriod = activeIdx >= 0 ? periods[activeIdx] : periods[periods.length - 1] || periods[0];
-
-    currentImpressoes = activePeriod.impressoes;
-    currentAlcance = activePeriod.alcance;
-    currentClick = activePeriod.click;
-    currentContatos = activePeriod.contatos;
-    currentOrcamentos = activePeriod.orcamentos;
-    currentVendas = activePeriod.vendas;
-    currentFaturamento = activePeriod.faturamento;
-    currentLucroBruto = activePeriod.lucroBruto;
-    currentInvestimento = activePeriod.investimento ?? 0;
-
-    currentTicketMedio = activePeriod.ticketMedio ?? (currentVendas > 0 ? currentFaturamento / currentVendas : 0);
-    currentLucroBrutoMedio = activePeriod.lucroBrutoMedio ?? (currentVendas > 0 ? currentLucroBruto / currentVendas : 0);
-    currentMargemBruta =
-      activePeriod.margemBruta ?? (currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0);
-    if (Math.abs(currentMargemBruta) <= 1.0 && currentMargemBruta !== 0) currentMargemBruta *= 100;
-
-    if (activeIdx > 0) {
-      const prevPeriod = periods[activeIdx - 1];
-      const prevTM = prevPeriod.ticketMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.faturamento / prevPeriod.vendas : 0);
-      const prevLBM =
-        prevPeriod.lucroBrutoMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.lucroBruto / prevPeriod.vendas : 0);
-      let prevMB =
-        prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
-      if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
-
-      const prevInv = prevPeriod.investimento ?? 0;
-
-      changeFaturamento =
-        prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
-      changeInvestimento =
-        prevInv > 0 ? ((currentInvestimento - prevInv) / prevInv) * 100 : currentInvestimento > 0 ? 100 : 0;
-      changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
-      changeLucroBruto =
-        prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
-      changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
-      changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
-    }
+    changeFaturamento = prevFat > 0 ? ((currentFaturamento - prevFat) / prevFat) * 100 : 0;
+    changeLucroBruto = prevLucro > 0 ? ((currentLucroBruto - prevLucro) / prevLucro) * 100 : 0;
+    changeInvestimento = prevInv > 0 ? ((currentInvestimento - prevInv) / prevInv) * 100 : currentInvestimento > 0 ? 100 : 0;
+    changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
+    changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
+    changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
   }
 
-  // Stepper handlers
-  const handlePrevPeriod = () => {
-    if (isConsolidated) {
-      setSelectedPeriodId(periods[periods.length - 1].id);
-      return;
-    }
-    if (activeIdx > 0) {
-      setSelectedPeriodId(periods[activeIdx - 1].id);
-    }
-  };
-
-  const handleNextPeriod = () => {
-    if (isConsolidated) return;
-    if (activeIdx < periods.length - 1) {
-      setSelectedPeriodId(periods[activeIdx + 1].id);
-    } else {
-      setSelectedPeriodId('consolidated');
-    }
-  };
-
-  const latestPeriod = periods.length > 0 ? periods[periods.length - 1] : null;
+  // Chart data: if filtered range is selected, pass the filtered slice; otherwise pass full periods
+  const chartPeriods = activeSlice.length > 1 ? activeSlice : periods;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col text-gray-900 font-sans antialiased selection:bg-[#DC2626]/20">
@@ -392,83 +390,13 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1280px] w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {/* Period Selection Controls Bar */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-xl border border-gray-200/80 shadow-2xs">
-          <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-700 font-semibold">
-            <Calendar className="w-4 h-4 text-[#DC2626]" />
-            <span>Período Selecionado:</span>
-            <span className="text-xs font-normal text-gray-400">
-              ({periods.length} {periods.length === 1 ? 'dia' : 'dias'} sincronizados)
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Stepper buttons */}
-            <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
-              <button
-                onClick={handlePrevPeriod}
-                disabled={activeIdx === 0}
-                title="Período anterior"
-                className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleNextPeriod}
-                disabled={isConsolidated}
-                title="Próximo período"
-                className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Dropdown Selector */}
-            <select
-              value={selectedPeriodId}
-              onChange={(e) => setSelectedPeriodId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200/70 focus:outline-hidden focus:ring-2 focus:ring-[#DC2626]/20 cursor-pointer"
-            >
-              <optgroup label="Visão Geral">
-                <option value="consolidated">📊 Consolidado (Todos os {periods.length} períodos)</option>
-              </optgroup>
-              <optgroup label="Períodos / Dias Diários">
-                {periods.map((p, idx) => (
-                  <option key={p.id} value={p.id}>
-                    {idx + 1}. {p.data} {idx === periods.length - 1 ? '🌟 (Último/Recente)' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-
-            {/* Quick Button: Latest period */}
-            {latestPeriod && (
-              <button
-                onClick={() => setSelectedPeriodId(latestPeriod.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  selectedPeriodId === latestPeriod.id
-                    ? 'bg-[#DC2626] text-white shadow-2xs'
-                    : 'bg-red-50 text-[#DC2626] hover:bg-red-100 border border-red-200/60'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Último: {latestPeriod.data}
-              </button>
-            )}
-
-            {/* Quick Button: Consolidated */}
-            <button
-              onClick={() => setSelectedPeriodId('consolidated')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                selectedPeriodId === 'consolidated'
-                  ? 'bg-gray-900 text-white shadow-2xs'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Consolidado
-            </button>
-          </div>
+        {/* Interactive Date Range & Period Picker Bar */}
+        <div className="mb-6">
+          <DateRangePicker
+            periods={periods}
+            selection={dateSelection}
+            onChangeSelection={setDateSelection}
+          />
         </div>
 
         {/* Exportable Dashboard Area */}
@@ -476,8 +404,9 @@ export default function App() {
           ref={dashboardRef}
           className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-2xs space-y-8"
         >
-          {/* Top Row: 6 Pill Metric Cards */}
+          {/* Top Row: 6 Pill Metric Cards (Investimento as the 6th card, after Margem Bruta) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+            {/* 1. Faturamento */}
             <MetricCard
               label="Faturamento"
               value={formatCurrency(currentFaturamento)}
@@ -485,6 +414,7 @@ export default function App() {
               changePercent={changeFaturamento}
               comparisonLabel={compLabel}
             />
+            {/* 2. Lucro Bruto */}
             <MetricCard
               label="Lucro Bruto"
               value={formatCurrency(currentLucroBruto)}
@@ -492,13 +422,7 @@ export default function App() {
               changePercent={changeLucroBruto}
               comparisonLabel={compLabel}
             />
-            <MetricCard
-              label="Investimento"
-              value={formatCurrency(currentInvestimento)}
-              accumulatedValue={formatCurrency(totalAccInvestimento)}
-              changePercent={changeInvestimento}
-              comparisonLabel={compLabel}
-            />
+            {/* 3. Ticket Médio */}
             <MetricCard
               label="Ticket Médio"
               value={formatCurrency(currentTicketMedio)}
@@ -506,6 +430,7 @@ export default function App() {
               changePercent={changeTicketMedio}
               comparisonLabel={compLabel}
             />
+            {/* 4. Lucro Bruto Médio */}
             <MetricCard
               label="Lucro Bruto Médio"
               value={formatCurrency(currentLucroBrutoMedio)}
@@ -513,6 +438,7 @@ export default function App() {
               changePercent={changeLucroBrutoMedio}
               comparisonLabel={compLabel}
             />
+            {/* 5. Margem Bruta */}
             <MetricCard
               label="Margem Bruta"
               value={formatPercent(currentMargemBruta)}
@@ -520,9 +446,17 @@ export default function App() {
               changePercent={changeMargemBruta}
               comparisonLabel={compLabel}
             />
+            {/* 6. Investimento (Last card, after Margem Bruta) */}
+            <MetricCard
+              label="Investimento"
+              value={formatCurrency(currentInvestimento)}
+              accumulatedValue={formatCurrency(totalAccInvestimento)}
+              changePercent={changeInvestimento}
+              comparisonLabel={compLabel}
+            />
           </div>
 
-          {/* Middle Row: Funnel (Left) + Conversion Chart (Right) */}
+          {/* Middle Row: Funnel (Left 6 cols) + Faturamento x Lucro Bruto (Right 6 cols) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
             <div className="lg:col-span-6 flex flex-col">
               <FunnelChart
@@ -535,13 +469,13 @@ export default function App() {
               />
             </div>
             <div className="lg:col-span-6 flex flex-col">
-              <ConversionChart periods={periods} activePeriodId={selectedPeriodId} />
+              <FinancialComboChart periods={chartPeriods} />
             </div>
           </div>
 
-          {/* Bottom Row: Financial Combo Chart (Full Width) */}
+          {/* Bottom Row: Taxas de Conversão (Full Width 12 cols) */}
           <div className="pt-2">
-            <FinancialComboChart periods={periods} activePeriodId={selectedPeriodId} />
+            <ConversionChart periods={chartPeriods} />
           </div>
         </div>
       </main>
@@ -552,7 +486,9 @@ export default function App() {
         onClose={() => setIsCsvModalOpen(false)}
         onDataLoaded={(newPeriods) => {
           setPeriods(newPeriods);
-          setSelectedPeriodId(newPeriods[newPeriods.length - 1].id);
+          if (newPeriods.length > 0) {
+            setDateSelection({ mode: 'single', periodId: newPeriods[newPeriods.length - 1].id });
+          }
         }}
       />
 
@@ -575,7 +511,7 @@ export default function App() {
         onSyncSuccess={(newPeriods, sheetName) => {
           setPeriods(newPeriods);
           if (newPeriods.length > 0) {
-            setSelectedPeriodId(newPeriods[newPeriods.length - 1].id);
+            setDateSelection({ mode: 'single', periodId: newPeriods[newPeriods.length - 1].id });
           }
           const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
           setLastSyncTime(timeStr);

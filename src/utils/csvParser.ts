@@ -81,6 +81,38 @@ export function formatDateCell(cellVal: any): string {
     }
   }
 
+  // Handle patterns like "18-Aug", "08-Jul", "06/ago", "15-set"
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    feb: '01',
+    fev: '02',
+    mar: '03',
+    apr: '04',
+    abr: '04',
+    may: '05',
+    mai: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    ago: '08',
+    sep: '09',
+    set: '09',
+    oct: '10',
+    out: '10',
+    nov: '11',
+    dec: '12',
+    dez: '12',
+  };
+
+  const matchSingle = str.match(/^(\d{1,2})[-/ ]([A-Za-z]{3,4})$/i);
+  if (matchSingle) {
+    const day = matchSingle[1].padStart(2, '0');
+    const monKey = matchSingle[2].toLowerCase().slice(0, 3);
+    if (monthMap[monKey]) {
+      return `${day}/${monthMap[monKey]}`;
+    }
+  }
+
   return str;
 }
 
