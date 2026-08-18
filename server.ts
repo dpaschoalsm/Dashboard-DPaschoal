@@ -54,10 +54,36 @@ async function fetchGoogleSpreadsheet(targetUrl: string): Promise<ArrayBuffer> {
  */
 async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> {
   const userAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
 
-  // Step 1: Hit raw sharing URL with manual redirect to capture FedAuth & session cookies
-  console.log(`[SharePoint Sync] Step 1: Requesting initial sharing URL: ${targetUrl}`);
+  // Strategy 1: Direct &download=1 with redirect: follow
+  const downloadUrl = targetUrl.includes('?') ? `${targetUrl}&download=1` : `${targetUrl}?download=1`;
+  console.log(`[SharePoint Sync] Strategy 1: Attempting direct &download=1 fetch with User-Agent...`);
+  try {
+    const directRes = await fetch(downloadUrl, {
+      headers: {
+        'User-Agent': userAgent,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+      redirect: 'follow',
+    });
+
+    if (directRes.ok) {
+      const directBuf = await directRes.arrayBuffer();
+      const directBytes = new Uint8Array(directBuf);
+      // Verify XLSX / ZIP signature (PK\x03\x04)
+      if (directBytes.length > 500 && directBytes[0] === 0x50 && directBytes[1] === 0x4b) {
+        console.log(`[SharePoint Sync] Strategy 1 succeeded! Downloaded ${directBuf.byteLength} bytes.`);
+        return directBuf;
+      }
+    }
+  } catch (directErr) {
+    console.warn('[SharePoint Sync] Strategy 1 direct &download=1 failed, continuing to session extractor:', directErr);
+  }
+
+  // Strategy 2: Session-based WOPI / download.aspx extractor
+  console.log(`[SharePoint Sync] Strategy 2: Requesting initial sharing URL: ${targetUrl}`);
   const initialRes = await fetch(targetUrl, {
     headers: {
       'User-Agent': userAgent,
