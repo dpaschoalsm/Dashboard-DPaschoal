@@ -70,21 +70,21 @@ export const ExportHeader: React.FC<ExportHeaderProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Online Spreadsheet Sync Button Group */}
-          <div className="flex items-center rounded-lg border border-blue-200 bg-blue-50/60 p-0.5 shadow-2xs">
+          {/* Online Spreadsheet Sync Button Group (Green) */}
+          <div className="flex items-center rounded-lg border border-emerald-600 bg-emerald-600 shadow-xs p-0.5">
             <button
               onClick={onQuickSyncSharepoint}
               disabled={isSyncingSharepoint}
               title={lastSyncTime ? `Atualizar planilha online agora (Última: ${lastSyncTime})` : 'Sincronizar dados da planilha online (Google Sheets / SharePoint)'}
-              className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-100/70 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              className="px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 active:bg-emerald-800 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncingSharepoint ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-100 ${isSyncingSharepoint ? 'animate-spin' : ''}`} />
               <span>{isSyncingSharepoint ? 'Sincronizando...' : 'Atualizar Planilha'}</span>
             </button>
             <button
               onClick={onOpenSharepointModal}
               title="Configurações do link da Planilha Online"
-              className="px-1.5 py-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100/70 rounded-md transition-colors border-l border-blue-200"
+              className="px-2 py-1.5 text-emerald-100 hover:text-white hover:bg-emerald-700 rounded-md transition-colors border-l border-emerald-500/60 cursor-pointer"
             >
               <Cloud className="w-3.5 h-3.5" />
             </button>

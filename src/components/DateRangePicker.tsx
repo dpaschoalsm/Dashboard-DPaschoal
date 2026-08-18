@@ -1,16 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PeriodData } from '../types';
 import {
-  Calendar,
+  parsePeriodDate,
+  formatHotelDate,
+  formatShortDate,
+  getMonthName,
+  isSameDay,
+  isBetweenDates,
+  mapPeriodsToDates,
+} from '../utils/dateHelpers';
+import {
+  Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  CalendarDays,
   Sparkles,
   Layers,
   Check,
   RotateCcw,
-  SlidersHorizontal,
 } from 'lucide-react';
 
 export type DateFilterSelection =
@@ -32,7 +38,56 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Close popover on outside click
+  // Mapped list of periods with parsed JS dates
+  const periodDateList = React.useMemo(() => mapPeriodsToDates(periods), [periods]);
+
+  // Find default reference date (latest period's date, or current date)
+  const latestItem = periodDateList[periodDateList.length - 1];
+  const defaultDate = latestItem ? latestItem.date : new Date();
+
+  // Calendar viewed Month & Year state
+  const [viewYear, setViewYear] = useState<number>(() => defaultDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState<number>(() => defaultDate.getMonth());
+
+  // Interactive range selection in-flight state (while choosing start & end in the popup)
+  const [pickingState, setPickingState] = useState<{
+    startDate: Date | null;
+    endDate: Date | null;
+  }>({ startDate: null, endDate: null });
+
+  const [hoverDate, setHoverDate] = useState<Date | null>(null);
+
+  // Synchronize calendar view & pickingState with active selection whenever popover opens or selection changes
+  useEffect(() => {
+    if (periodDateList.length === 0) return;
+
+    if (selection.mode === 'single') {
+      const match = periodDateList.find((p) => p.period.id === selection.periodId);
+      if (match) {
+        setPickingState({ startDate: match.date, endDate: match.date });
+        setViewMonth(match.date.getMonth());
+        setViewYear(match.date.getFullYear());
+      }
+    } else if (selection.mode === 'range') {
+      const startMatch = periodDateList.find((p) => p.period.id === selection.startPeriodId);
+      const endMatch = periodDateList.find((p) => p.period.id === selection.endPeriodId);
+      if (startMatch && endMatch) {
+        setPickingState({ startDate: startMatch.date, endDate: endMatch.date });
+        setViewMonth(endMatch.date.getMonth());
+        setViewYear(endMatch.date.getFullYear());
+      }
+    } else if (selection.mode === 'consolidated') {
+      const first = periodDateList[0];
+      const last = periodDateList[periodDateList.length - 1];
+      if (first && last) {
+        setPickingState({ startDate: first.date, endDate: last.date });
+        setViewMonth(last.date.getMonth());
+        setViewYear(last.date.getFullYear());
+      }
+    }
+  }, [selection, periods, isOpen]);
+
+  // Close popover on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
@@ -51,220 +106,210 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     return null;
   }
 
-  const latestPeriod = periods[periods.length - 1];
-  const firstPeriod = periods[0];
+  // Get active start & end dates from selection
+  let activeStartDate: Date = defaultDate;
+  let activeEndDate: Date = defaultDate;
 
-  // Helper to find index of a period by ID
-  const getIndexById = (id: string) => periods.findIndex((p) => p.id === id);
-
-  // Determine current active display label
-  let displayTitle = '';
-  let displaySubtitle = '';
-  let activeIndexSingle = -1;
-
-  if (selection.mode === 'consolidated') {
-    displayTitle = 'Todo o Período (Consolidado)';
-    displaySubtitle = `${periods.length} dias (${firstPeriod?.data} até ${latestPeriod?.data})`;
-  } else if (selection.mode === 'single') {
-    const p = periods.find((item) => item.id === selection.periodId) || latestPeriod;
-    activeIndexSingle = getIndexById(p.id);
-    displayTitle = p.data;
-    displaySubtitle = 'Dia único';
+  if (selection.mode === 'single') {
+    const match = periodDateList.find((p) => p.period.id === selection.periodId);
+    if (match) {
+      activeStartDate = match.date;
+      activeEndDate = match.date;
+    }
   } else if (selection.mode === 'range') {
-    const startP = periods.find((item) => item.id === selection.startPeriodId) || firstPeriod;
-    const endP = periods.find((item) => item.id === selection.endPeriodId) || latestPeriod;
-    const sIdx = getIndexById(startP.id);
-    const eIdx = getIndexById(endP.id);
-    const minIdx = Math.min(sIdx, eIdx);
-    const maxIdx = Math.max(sIdx, eIdx);
-    const count = maxIdx - minIdx + 1;
-    displayTitle = `${periods[minIdx].data} até ${periods[maxIdx].data}`;
-    displaySubtitle = `${count} ${count === 1 ? 'dia' : 'dias'}`;
+    const sMatch = periodDateList.find((p) => p.period.id === selection.startPeriodId);
+    const eMatch = periodDateList.find((p) => p.period.id === selection.endPeriodId);
+    if (sMatch && eMatch) {
+      activeStartDate = sMatch.date;
+      activeEndDate = eMatch.date;
+    }
+  } else if (selection.mode === 'consolidated') {
+    if (periodDateList.length > 0) {
+      activeStartDate = periodDateList[0].date;
+      activeEndDate = periodDateList[periodDateList.length - 1].date;
+    }
   }
 
+  // Helper to find periods matching a date range
+  const applyDateRangeSelection = (start: Date, end: Date) => {
+    const minTime = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+    const maxTime = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+
+    const startT = Math.min(minTime, maxTime);
+    const endT = Math.max(minTime, maxTime);
+
+    // Find all periods within this timestamp window
+    const matching = periodDateList.filter((item) => {
+      const itemT = new Date(item.date.getFullYear(), item.date.getMonth(), item.date.getDate()).getTime();
+      return itemT >= startT && itemT <= endT;
+    });
+
+    if (matching.length === 0) {
+      // Fallback to closest period
+      if (periodDateList.length > 0) {
+        onChangeSelection({ mode: 'single', periodId: periodDateList[periodDateList.length - 1].period.id });
+      }
+      return;
+    }
+
+    if (matching.length === 1 || startT === endT) {
+      onChangeSelection({ mode: 'single', periodId: matching[0].period.id });
+    } else {
+      onChangeSelection({
+        mode: 'range',
+        startPeriodId: matching[0].period.id,
+        endPeriodId: matching[matching.length - 1].period.id,
+      });
+    }
+  };
+
+  // Calendar Day Click Handler
+  const handleCalendarDayClick = (clickedDate: Date) => {
+    if (!pickingState.startDate || (pickingState.startDate && pickingState.endDate)) {
+      // First click: sets start date and clears end date (waiting for second click)
+      setPickingState({ startDate: clickedDate, endDate: null });
+    } else {
+      // Second click: sets end date and applies
+      let start = pickingState.startDate;
+      let end = clickedDate;
+      if (end.getTime() < start.getTime()) {
+        const temp = start;
+        start = end;
+        end = temp;
+      }
+      setPickingState({ startDate: start, endDate: end });
+      applyDateRangeSelection(start, end);
+    }
+  };
+
+  // Month navigation in calendar
+  const handlePrevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  // Calculate days in the current view month for standard 7-column calendar
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay(); // 0 = Sunday
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  // Create array of calendar day cells
+  const calendarCells = [];
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    calendarCells.push(null); // empty leading slots
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    calendarCells.push(new Date(viewYear, viewMonth, day));
+  }
+
+  // Count days in active selection
+  const daysDifference =
+    Math.round(
+      Math.abs(activeEndDate.getTime() - activeStartDate.getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1;
+
   // Stepper handlers
-  const canStepPrev =
-    selection.mode === 'single' && activeIndexSingle > 0;
-  const canStepNext =
-    selection.mode === 'single' && activeIndexSingle < periods.length - 1;
+  const activeIndex = periods.findIndex((p) => p.id === (selection.mode === 'single' ? selection.periodId : ''));
+  const canStepPrev = selection.mode === 'single' && activeIndex > 0;
+  const canStepNext = selection.mode === 'single' && activeIndex < periods.length - 1;
 
   const handleStepPrev = () => {
-    if (selection.mode === 'single' && activeIndexSingle > 0) {
-      onChangeSelection({ mode: 'single', periodId: periods[activeIndexSingle - 1].id });
-    } else if (selection.mode === 'consolidated') {
-      onChangeSelection({ mode: 'single', periodId: latestPeriod.id });
+    if (canStepPrev) {
+      onChangeSelection({ mode: 'single', periodId: periods[activeIndex - 1].id });
     }
   };
 
   const handleStepNext = () => {
-    if (selection.mode === 'single' && activeIndexSingle < periods.length - 1) {
-      onChangeSelection({ mode: 'single', periodId: periods[activeIndexSingle + 1].id });
+    if (canStepNext) {
+      onChangeSelection({ mode: 'single', periodId: periods[activeIndex + 1].id });
     }
   };
 
-  // Quick preset handlers
-  const handleSelectLatest = () => {
-    onChangeSelection({ mode: 'single', periodId: latestPeriod.id });
+  // Quick preset shortcuts
+  const handlePresetLatest = () => {
+    const latest = periods[periods.length - 1];
+    onChangeSelection({ mode: 'single', periodId: latest.id });
     setIsOpen(false);
   };
 
-  const handleSelectConsolidated = () => {
+  const handlePresetConsolidated = () => {
     onChangeSelection({ mode: 'consolidated' });
     setIsOpen(false);
   };
 
-  const handleSelectLastNDays = (n: number) => {
+  const handlePresetLastNDays = (n: number) => {
     if (periods.length <= 1) {
-      onChangeSelection({ mode: 'single', periodId: latestPeriod.id });
-      setIsOpen(false);
+      handlePresetLatest();
       return;
     }
     const startIdx = Math.max(0, periods.length - n);
     const endIdx = periods.length - 1;
-    if (startIdx === endIdx) {
-      onChangeSelection({ mode: 'single', periodId: periods[startIdx].id });
-    } else {
-      onChangeSelection({
-        mode: 'range',
-        startPeriodId: periods[startIdx].id,
-        endPeriodId: periods[endIdx].id,
-      });
-    }
+    onChangeSelection({
+      mode: 'range',
+      startPeriodId: periods[startIdx].id,
+      endPeriodId: periods[endIdx].id,
+    });
     setIsOpen(false);
   };
 
-  const handleSelectMonth = (monthKeyword: string) => {
-    const matching = periods.filter(
-      (p) =>
-        p.data.toLowerCase().includes(monthKeyword.toLowerCase()) ||
-        p.data.includes(`/${monthKeyword}`)
-    );
-    if (matching.length > 0) {
-      if (matching.length === 1) {
-        onChangeSelection({ mode: 'single', periodId: matching[0].id });
-      } else {
-        onChangeSelection({
-          mode: 'range',
-          startPeriodId: matching[0].id,
-          endPeriodId: matching[matching.length - 1].id,
-        });
-      }
-      setIsOpen(false);
-    }
-  };
-
-  // Range dropdown handlers
-  const currentStartId =
-    selection.mode === 'range'
-      ? selection.startPeriodId
-      : selection.mode === 'single'
-      ? selection.periodId
-      : firstPeriod?.id;
-
-  const currentEndId =
-    selection.mode === 'range'
-      ? selection.endPeriodId
-      : selection.mode === 'single'
-      ? selection.periodId
-      : latestPeriod?.id;
-
-  const handleStartChange = (newStartId: string) => {
-    const sIdx = getIndexById(newStartId);
-    const eIdx = getIndexById(currentEndId);
-    if (sIdx > eIdx) {
-      // If start is after end, set end to start (single day) or swap
-      onChangeSelection({
-        mode: 'range',
-        startPeriodId: newStartId,
-        endPeriodId: newStartId,
-      });
-    } else if (sIdx === eIdx) {
-      onChangeSelection({ mode: 'single', periodId: newStartId });
-    } else {
-      onChangeSelection({
-        mode: 'range',
-        startPeriodId: newStartId,
-        endPeriodId: currentEndId,
-      });
-    }
-  };
-
-  const handleEndChange = (newEndId: string) => {
-    const sIdx = getIndexById(currentStartId);
-    const eIdx = getIndexById(newEndId);
-    if (eIdx < sIdx) {
-      // If end is before start, set start to end
-      onChangeSelection({
-        mode: 'range',
-        startPeriodId: newEndId,
-        endPeriodId: newEndId,
-      });
-    } else if (sIdx === eIdx) {
-      onChangeSelection({ mode: 'single', periodId: newEndId });
-    } else {
-      onChangeSelection({
-        mode: 'range',
-        startPeriodId: currentStartId,
-        endPeriodId: newEndId,
-      });
-    }
-  };
-
-  // Handle clicking a date cell in the visual grid
-  const handleDateClickInGrid = (clickedId: string) => {
-    if (selection.mode === 'single' || selection.mode === 'consolidated') {
-      // Switch to single or start of a range
-      onChangeSelection({ mode: 'single', periodId: clickedId });
-    } else if (selection.mode === 'range') {
-      const sIdx = getIndexById(selection.startPeriodId);
-      const eIdx = getIndexById(selection.endPeriodId);
-      const cIdx = getIndexById(clickedId);
-
-      if (cIdx < sIdx) {
-        // Expand start backwards
-        onChangeSelection({ mode: 'range', startPeriodId: clickedId, endPeriodId: selection.endPeriodId });
-      } else if (cIdx > eIdx) {
-        // Expand end forwards
-        onChangeSelection({ mode: 'range', startPeriodId: selection.startPeriodId, endPeriodId: clickedId });
-      } else if (cIdx === sIdx && cIdx === eIdx) {
-        // Single day clicked
-        onChangeSelection({ mode: 'single', periodId: clickedId });
-      } else {
-        // Clicked inside existing range -> set end date to clicked date
-        onChangeSelection({ mode: 'range', startPeriodId: selection.startPeriodId, endPeriodId: clickedId });
-      }
-    }
-  };
-
-  // Determine active range bounds for visual grid highlights
-  let highlightStartIdx = -1;
-  let highlightEndIdx = -1;
-  if (selection.mode === 'single') {
-    const idx = getIndexById(selection.periodId);
-    highlightStartIdx = idx;
-    highlightEndIdx = idx;
-  } else if (selection.mode === 'range') {
-    const sIdx = getIndexById(selection.startPeriodId);
-    const eIdx = getIndexById(selection.endPeriodId);
-    highlightStartIdx = Math.min(sIdx, eIdx);
-    highlightEndIdx = Math.max(sIdx, eIdx);
-  } else if (selection.mode === 'consolidated') {
-    highlightStartIdx = 0;
-    highlightEndIdx = periods.length - 1;
-  }
-
   return (
-    <div className="relative inline-block w-full" ref={popoverRef}>
-      {/* Top Filter Bar Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-2xs">
-        {/* Left Side: Calendar Icon + Date Selector Button */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            <Calendar className="w-4 h-4 text-[#DC2626]" />
-            <span>Período:</span>
-          </div>
+    <div className="relative w-full" ref={popoverRef}>
+      {/* Hotel-Style Date Inputs Trigger Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-2xl border border-gray-200 shadow-2xs">
+        {/* Left Side: 2 Side-by-Side Date Boxes (Hotel Style) */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Start Date Box */}
+          <button
+            onClick={() => setIsOpen(true)}
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+              isOpen
+                ? 'bg-blue-50/70 border-[#2563EB] text-[#2563EB] ring-2 ring-[#2563EB]/20 shadow-xs'
+                : 'bg-white hover:bg-gray-50 text-gray-800 border-gray-300 hover:border-gray-400 shadow-2xs'
+            }`}
+          >
+            <CalendarIcon className="w-4 h-4 text-[#2563EB] shrink-0" />
+            <span className="capitalize">{formatHotelDate(activeStartDate)}</span>
+          </button>
 
-          {/* Stepper buttons (prev/next day) */}
+          <span className="text-gray-400 font-medium text-xs hidden sm:inline">até</span>
+
+          {/* End Date Box */}
+          <button
+            onClick={() => setIsOpen(true)}
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+              isOpen
+                ? 'bg-blue-50/70 border-[#2563EB] text-[#2563EB] ring-2 ring-[#2563EB]/20 shadow-xs'
+                : 'bg-white hover:bg-gray-50 text-gray-800 border-gray-300 hover:border-gray-400 shadow-2xs'
+            }`}
+          >
+            <CalendarIcon className="w-4 h-4 text-[#2563EB] shrink-0" />
+            <span className="capitalize">
+              {selection.mode === 'single' ? formatHotelDate(activeStartDate) : formatHotelDate(activeEndDate)}
+            </span>
+          </button>
+
+          {/* Days summary pill */}
+          <span className="text-xs px-2.5 py-1 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200/80 font-bold hidden md:inline-flex items-center">
+            {selection.mode === 'consolidated'
+              ? 'Todo o Período'
+              : daysDifference === 1
+              ? '1 dia selecionado'
+              : `${daysDifference} dias selecionados`}
+          </span>
+
+          {/* Steppers (< and >) */}
           <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
             <button
               onClick={handleStepPrev}
@@ -283,63 +328,31 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Interactive Date Range Display Button */}
-          <button
-            onClick={() => setIsOpen(!isOpen)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border flex items-center gap-2 transition-all cursor-pointer ${
-              isOpen
-                ? 'bg-red-50/80 border-[#DC2626] text-[#DC2626] ring-2 ring-[#DC2626]/20'
-                : 'bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            <CalendarDays className="w-4 h-4 text-[#DC2626]" />
-            <span className="font-bold text-gray-900">{displayTitle}</span>
-            <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-200/70 text-gray-600 font-medium">
-              {displaySubtitle}
-            </span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
-                isOpen ? 'rotate-180 text-[#DC2626]' : ''
-              }`}
-            />
-          </button>
         </div>
 
-        {/* Right Side: Quick Action Pills */}
+        {/* Right Side: Quick Action Presets */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Latest day button */}
-          {latestPeriod && (
-            <button
-              onClick={handleSelectLatest}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                selection.mode === 'single' && selection.periodId === latestPeriod.id
-                  ? 'bg-[#DC2626] text-white shadow-2xs font-bold'
-                  : 'bg-red-50 text-[#DC2626] hover:bg-red-100 border border-red-200/60'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Último ({latestPeriod.data})
-            </button>
-          )}
-
-          {/* 7 Days button */}
           <button
-            onClick={() => handleSelectLastNDays(7)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              selection.mode === 'range' &&
-              selection.endPeriodId === latestPeriod.id &&
-              getIndexById(selection.endPeriodId) - getIndexById(selection.startPeriodId) === 6
-                ? 'bg-gray-900 text-white shadow-2xs'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            onClick={handlePresetLatest}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+              selection.mode === 'single' && selection.periodId === periods[periods.length - 1]?.id
+                ? 'bg-[#2563EB] text-white shadow-2xs font-bold'
+                : 'bg-blue-50 text-[#2563EB] hover:bg-blue-100 border border-blue-200/60'
             }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Último ({periods[periods.length - 1]?.data})
+          </button>
+
+          <button
+            onClick={() => handlePresetLastNDays(7)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all cursor-pointer"
           >
             Últimos 7 dias
           </button>
 
-          {/* Consolidated button */}
           <button
-            onClick={handleSelectConsolidated}
+            onClick={handlePresetConsolidated}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
               selection.mode === 'consolidated'
                 ? 'bg-gray-900 text-white shadow-2xs'
@@ -349,187 +362,179 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
             <Layers className="w-3.5 h-3.5" />
             Consolidado
           </button>
-
-          {/* Toggle Popover button */}
-          <button
-            onClick={() => setIsOpen(!isOpen)}
-            title="Abrir calendário e intervalo personalizado"
-            className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 border border-gray-200 cursor-pointer"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
-      {/* Popover Dropdown Panel */}
+      {/* Popover Calendar Modal (Hotel Style with strong elevated shadow & contrast) */}
       {isOpen && (
-        <div className="absolute left-0 right-0 sm:right-auto sm:w-[620px] mt-2 z-50 bg-white rounded-2xl border border-gray-200 shadow-xl p-5 animate-in fade-in zoom-in-95 duration-150">
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-[#DC2626]" />
-              <h4 className="text-sm font-bold text-gray-900">Selecionar Período ou Intervalo</h4>
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100"
-            >
-              Fechar ✕
-            </button>
-          </div>
+        <>
+          {/* Subtle backdrop to make popup pop out */}
+          <div
+            className="fixed inset-0 z-40 bg-black/15 backdrop-blur-[1px] transition-opacity"
+            onClick={() => setIsOpen(false)}
+          />
 
-          {/* Presets Grid */}
-          <div className="mb-4">
-            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
-              Atalhos Rápidos
-            </label>
-            <div className="flex flex-wrap gap-1.5">
+          <div className="absolute left-0 sm:left-2 top-full mt-3 z-50 w-full sm:w-[380px] bg-white rounded-3xl border border-gray-200 shadow-[0_20px_50px_rgba(0,0,0,0.22)] ring-1 ring-black/5 p-5 animate-in fade-in zoom-in-95 duration-150">
+            {/* Month Header with Navigation Arrows */}
+            <div className="relative flex items-center justify-between pb-3 mb-2">
               <button
-                onClick={handleSelectLatest}
-                className="px-2.5 py-1 text-xs rounded-lg bg-red-50 text-[#DC2626] hover:bg-red-100 border border-red-200 font-medium"
+                onClick={handlePrevMonth}
+                title="Mês anterior"
+                className="w-8 h-8 rounded-full border border-gray-300 bg-white hover:bg-gray-100 flex items-center justify-center text-gray-700 shadow-2xs transition-colors cursor-pointer"
               >
-                🌟 Mais Recente ({latestPeriod?.data})
+                <ChevronLeft className="w-4 h-4" />
               </button>
+
+              <h3 className="text-sm sm:text-base font-bold text-gray-900 capitalize">
+                {getMonthName(viewMonth)} {viewYear}
+              </h3>
+
               <button
-                onClick={() => handleSelectLastNDays(7)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+                onClick={handleNextMonth}
+                title="Próximo mês"
+                className="w-8 h-8 rounded-full border border-gray-300 bg-white hover:bg-gray-100 flex items-center justify-center text-gray-700 shadow-2xs transition-colors cursor-pointer"
               >
-                Últimos 7 dias
-              </button>
-              <button
-                onClick={() => handleSelectLastNDays(14)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
-              >
-                Últimos 14 dias
-              </button>
-              <button
-                onClick={() => handleSelectLastNDays(30)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
-              >
-                Últimos 30 dias
-              </button>
-              <button
-                onClick={() => handleSelectMonth('07')}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
-              >
-                Mês Julho
-              </button>
-              <button
-                onClick={() => handleSelectMonth('08')}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
-              >
-                Mês Agosto
-              </button>
-              <button
-                onClick={handleSelectConsolidated}
-                className="px-2.5 py-1 text-xs rounded-lg bg-gray-900 text-white hover:bg-black font-medium"
-              >
-                Todo o Período
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-          </div>
 
-          {/* Date Range Start & End Dropdowns */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-200/80">
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Data Inicial (De):
-              </label>
-              <select
-                value={currentStartId}
-                onChange={(e) => handleStartChange(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs font-medium bg-white text-gray-900 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#DC2626]/20 cursor-pointer"
-              >
-                {periods.map((p) => (
-                  <option key={`start-${p.id}`} value={p.id}>
-                    {p.data}
-                  </option>
-                ))}
-              </select>
+            {/* Weekday Row (Hotel style: D S T Q Q S S) */}
+            <div className="grid grid-cols-7 gap-0 bg-gray-100/80 rounded-xl py-1.5 mb-1.5 text-center text-xs font-semibold text-gray-600">
+              <span>D</span>
+              <span>S</span>
+              <span>T</span>
+              <span>Q</span>
+              <span>Q</span>
+              <span>S</span>
+              <span>S</span>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Data Final (Até):
-              </label>
-              <select
-                value={currentEndId}
-                onChange={(e) => handleEndChange(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs font-medium bg-white text-gray-900 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-[#DC2626]/20 cursor-pointer"
-              >
-                {periods.map((p) => (
-                  <option key={`end-${p.id}`} value={p.id}>
-                    {p.data}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+            {/* Calendar Days Grid */}
+            <div className="grid grid-cols-7 gap-y-1 gap-x-0 py-1">
+              {calendarCells.map((dateObj, idx) => {
+                if (!dateObj) {
+                  return <div key={`empty-${idx}`} className="h-10 w-full" />;
+                }
 
-          {/* Visual Date Grid / Timeline */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                Clique nos dias para ajustar o intervalo:
-              </label>
-              <span className="text-xs font-semibold text-gray-600">{displaySubtitle}</span>
-            </div>
+                // Check if this date corresponds to a period in the spreadsheet
+                const hasData = periodDateList.some((item) => isSameDay(item.date, dateObj));
 
-            <div className="max-h-48 overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-200">
-              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-7 gap-1.5">
-                {periods.map((p, idx) => {
-                  const isInRange =
-                    highlightStartIdx !== -1 &&
-                    highlightEndIdx !== -1 &&
-                    idx >= highlightStartIdx &&
-                    idx <= highlightEndIdx;
+                // Determine active range bounds for rendering
+                const rangeStart = pickingState.startDate || activeStartDate;
+                const effectiveEnd = pickingState.endDate || hoverDate || pickingState.startDate || activeEndDate;
 
-                  const isStart = idx === highlightStartIdx;
-                  const isEnd = idx === highlightEndIdx;
+                const isStart = isSameDay(dateObj, rangeStart);
+                const isEnd = isSameDay(dateObj, effectiveEnd);
+                const inRange = isBetweenDates(dateObj, rangeStart, effectiveEnd);
+                const isSingleSelected = isStart && isEnd;
 
-                  return (
+                // Visual connecting background for range strip
+                let bgStripClass = '';
+                if (inRange && !isSingleSelected) {
+                  bgStripClass = 'bg-blue-100/80';
+                  if (isStart) {
+                    bgStripClass = 'bg-gradient-to-r from-transparent 50% to-blue-100/80 50%';
+                  } else if (isEnd) {
+                    bgStripClass = 'bg-gradient-to-r from-blue-100/80 50% to-transparent 50%';
+                  }
+                }
+
+                return (
+                  <div
+                    key={`day-${dateObj.toISOString()}`}
+                    className={`relative h-10 flex items-center justify-center ${bgStripClass}`}
+                    onMouseEnter={() => {
+                      if (pickingState.startDate && !pickingState.endDate) {
+                        setHoverDate(dateObj);
+                      }
+                    }}
+                  >
                     <button
-                      key={p.id}
-                      onClick={() => handleDateClickInGrid(p.id)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-all text-center flex flex-col items-center justify-center cursor-pointer ${
+                      type="button"
+                      onClick={() => handleCalendarDayClick(dateObj)}
+                      className={`w-9 h-9 rounded-full flex flex-col items-center justify-center text-xs font-semibold transition-all relative z-10 cursor-pointer ${
                         isStart || isEnd
-                          ? 'bg-[#DC2626] text-white font-bold shadow-xs scale-102'
-                          : isInRange
-                          ? 'bg-red-100 text-[#DC2626] font-semibold'
-                          : 'bg-white text-gray-700 hover:bg-gray-200/80 border border-gray-200/60'
+                          ? 'bg-[#2563EB] text-white font-bold shadow-sm scale-105'
+                          : inRange
+                          ? 'text-[#1E40AF] font-bold hover:bg-blue-200/80'
+                          : hasData
+                          ? 'text-gray-900 hover:bg-gray-200/80 font-medium'
+                          : 'text-gray-400 hover:bg-gray-100'
                       }`}
                     >
-                      <span>{p.data}</span>
+                      <span>{dateObj.getDate()}</span>
+                      {hasData && !isStart && !isEnd && (
+                        <span className="w-1 h-1 rounded-full bg-[#2563EB] -mt-0.5" />
+                      )}
                     </button>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
 
-          {/* Footer Actions */}
-          <div className="flex items-center justify-between pt-4 mt-4 border-t border-gray-100">
-            <div className="text-xs text-gray-600">
-              Intervalo ativo: <strong className="text-gray-900">{displayTitle}</strong>
-            </div>
-            <div className="flex items-center gap-2">
+            {/* Quick Presets Row in Popup */}
+            <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-1.5">
               <button
-                onClick={() => {
-                  handleSelectConsolidated();
-                }}
-                className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100"
+                onClick={handlePresetLatest}
+                className="px-2 py-1 text-[11px] rounded-lg bg-blue-50 text-[#2563EB] hover:bg-blue-100 font-semibold"
               >
-                Limpar Filtro
+                🌟 Mais Recente
               </button>
               <button
-                onClick={() => setIsOpen(false)}
-                className="px-4 py-1.5 text-xs font-bold bg-[#DC2626] hover:bg-[#b91c1c] text-white rounded-lg shadow-2xs cursor-pointer flex items-center gap-1"
+                onClick={() => handlePresetLastNDays(7)}
+                className="px-2 py-1 text-[11px] rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
               >
-                <Check className="w-3.5 h-3.5" />
-                Aplicar
+                7 dias
+              </button>
+              <button
+                onClick={() => handlePresetLastNDays(14)}
+                className="px-2 py-1 text-[11px] rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+              >
+                14 dias
+              </button>
+              <button
+                onClick={() => handlePresetLastNDays(30)}
+                className="px-2 py-1 text-[11px] rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+              >
+                30 dias
+              </button>
+              <button
+                onClick={handlePresetConsolidated}
+                className="px-2 py-1 text-[11px] rounded-lg bg-gray-900 text-white hover:bg-black font-medium"
+              >
+                Consolidado
+              </button>
+            </div>
+
+            {/* Bottom Hotel-Style Footer Bar: [ "8 diárias" ] ... [ Concluído ] */}
+            <div className="flex items-center justify-between pt-4 mt-3 border-t border-gray-100">
+              <div className="text-xs font-semibold text-gray-600">
+                {selection.mode === 'consolidated'
+                  ? 'Todo o período'
+                  : daysDifference === 1
+                  ? '1 diária / dia'
+                  : `${daysDifference} diárias / dias`}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (pickingState.startDate) {
+                    applyDateRangeSelection(
+                      pickingState.startDate,
+                      pickingState.endDate || pickingState.startDate
+                    );
+                  }
+                  setIsOpen(false);
+                }}
+                className="px-6 py-2 bg-[#2563EB] hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-bold rounded-full shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                Concluído
               </button>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
