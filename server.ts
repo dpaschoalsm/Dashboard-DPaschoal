@@ -15,7 +15,7 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
 
 /**
- * Safe fetch helper with 15s timeout
+ * Safe fetch helper with 15s timeout and cache prevention
  */
 async function safeFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
@@ -23,6 +23,13 @@ async function safeFetch(url: string, options: RequestInit = {}): Promise<Respon
   try {
     const res = await fetch(url, {
       ...options,
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        ...(options.headers || {}),
+      },
       signal: controller.signal,
     });
     return res;
@@ -91,7 +98,7 @@ async function fetchGoogleSheetsBuffer(targetUrl: string): Promise<Buffer> {
     throw new Error('Link do Google Planilhas inválido.');
   }
   const sheetId = match[1];
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx&_nocache=${Date.now()}`;
 
   const res = await safeFetch(exportUrl, {
     headers: { 'User-Agent': USER_AGENT },
@@ -112,10 +119,14 @@ async function fetchGoogleSheetsBuffer(targetUrl: string): Promise<Buffer> {
 }
 
 /**
- * Downloads binary buffer from SharePoint
+ * Downloads binary buffer from SharePoint with fresh timestamp
  */
 async function fetchSharePointBuffer(targetUrl: string): Promise<Buffer> {
-  const downloadUrl = targetUrl.includes('?') ? `${targetUrl}&download=1` : `${targetUrl}?download=1`;
+  const timestamp = Date.now();
+  const downloadUrl = targetUrl.includes('?')
+    ? `${targetUrl}&download=1&_nocache=${timestamp}`
+    : `${targetUrl}?download=1&_nocache=${timestamp}`;
+
   try {
     const directRes = await safeFetch(downloadUrl, {
       headers: {
@@ -135,10 +146,10 @@ async function fetchSharePointBuffer(targetUrl: string): Promise<Buffer> {
       }
     }
   } catch (e) {
-    // Continue to strategy 2
+    // Continue
   }
 
-  const initialRes = await safeFetch(targetUrl, {
+  const initialRes = await safeFetch(`${targetUrl}&_t=${timestamp}`, {
     headers: {
       'User-Agent': USER_AGENT,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -179,7 +190,7 @@ async function fetchSharePointBuffer(targetUrl: string): Promise<Buffer> {
       const origin = new URL(destinationUrl).origin;
       const pathMatch = destinationUrl.match(/(\/personal\/[^\/]+)/);
       const personalPath = pathMatch ? pathMatch[1] : '';
-      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false`;
+      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false&_nocache=${timestamp}`;
 
       const fastRes = await safeFetch(fastDownloadUrl, {
         headers: {
@@ -232,7 +243,7 @@ async function fetchSharePointBuffer(targetUrl: string): Promise<Buffer> {
     try {
       const wopiObj = JSON.parse(wopiMatch[1]);
       if (wopiObj.FileGetUrl) {
-        const fileRes = await safeFetch(wopiObj.FileGetUrl, {
+        const fileRes = await safeFetch(`${wopiObj.FileGetUrl}&_ts=${timestamp}`, {
           headers: {
             'User-Agent': USER_AGENT,
             Cookie: cookieHeader,
@@ -259,6 +270,10 @@ async function fetchSharePointBuffer(targetUrl: string): Promise<Buffer> {
 
 // API Handler implementation
 async function handleSpreadsheetSync(req: express.Request, res: express.Response) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   try {
     const rawUrl = (req.body?.url || req.query?.url || DEFAULT_SHAREPOINT_URL).trim();
     if (!rawUrl) {

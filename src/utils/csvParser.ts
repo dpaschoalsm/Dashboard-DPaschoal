@@ -72,13 +72,12 @@ export function formatDateCell(cellVal: any): string {
           return `${day}/${month}`;
         }
       }
-      // Fallback calculation for Excel serial date code
       const jsDate = new Date((num - (25567 + 2)) * 86400 * 1000);
       const day = String(jsDate.getUTCDate()).padStart(2, '0');
       const month = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
       return `${day}/${month}`;
     } catch {
-      // return original string if conversion fails
+      // return original string
     }
   }
 
@@ -95,7 +94,6 @@ export function parsePercentageVal(val: any, fallbackCalc: () => number): number
 
   if (typeof val === 'number') {
     if (isNaN(val)) return fallbackCalc();
-    // Excel stores percentages as decimal fractions (e.g. 0.3957 for 39.57%, 1.4884 for 148.84%)
     if (Math.abs(val) <= 10.0 && val !== 0) {
       return val * 100;
     }
@@ -105,7 +103,6 @@ export function parsePercentageVal(val: any, fallbackCalc: () => number): number
   const str = String(val).trim();
   const num = parsePtBrNumber(str);
 
-  // If string was a raw decimal number without '%' (e.g. "0.3957" or "1.4884")
   if (!str.includes('%') && Math.abs(num) <= 10.0 && num !== 0) {
     return num * 100;
   }
@@ -122,7 +119,9 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
   }
 
   // Find header row (first non-empty row)
-  const headerRowIndex = rows.findIndex((r) => r && r.length > 0 && r.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''));
+  const headerRowIndex = rows.findIndex(
+    (r) => r && r.length > 0 && r.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== '')
+  );
   if (headerRowIndex === -1 || headerRowIndex >= rows.length - 1) {
     throw new Error('Não foi possível identificar o cabeçalho no arquivo.');
   }
@@ -136,22 +135,41 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
 
   // Helper to identify rate/conversion ratio headers
   const isRateHeader = (h: string) =>
-    h.includes('->') || h.includes('→') || h.includes('?') || h.includes('/') || h.includes('médio') || h.includes('medio') || h.includes('ticket') || h.includes('margem');
+    h.includes('->') ||
+    h.includes('→') ||
+    h.includes('?') ||
+    h.includes('/') ||
+    h.includes('médio') ||
+    h.includes('medio') ||
+    h.includes('ticket') ||
+    h.includes('margem');
 
   // Conversion rate column mappings
-  const colContatoOrcamento = findColIndex((h) =>
-    (h.includes('contato') && (h.includes('orçamento') || h.includes('orcamento'))) ||
-    h.includes('contato ->') || h.includes('contato →') || h.includes('contato ?') || h.includes('contato a ')
+  const colContatoOrcamento = findColIndex(
+    (h) =>
+      (h.includes('contato') && (h.includes('orçamento') || h.includes('orcamento'))) ||
+      h.includes('contato ->') ||
+      h.includes('contato →') ||
+      h.includes('contato ?') ||
+      h.includes('contato a ')
   );
 
-  const colOrcamentoVenda = findColIndex((h) =>
-    ((h.includes('orçamento') || h.includes('orcamento')) && h.includes('venda')) ||
-    h.includes('orçamento ->') || h.includes('orcamento ->') || h.includes('orçamento →') || h.includes('orçamento ?') || h.includes('orçamento a ')
+  const colOrcamentoVenda = findColIndex(
+    (h) =>
+      ((h.includes('orçamento') || h.includes('orcamento')) && h.includes('venda')) ||
+      h.includes('orçamento ->') ||
+      h.includes('orcamento ->') ||
+      h.includes('orçamento →') ||
+      h.includes('orçamento ?') ||
+      h.includes('orçamento a ')
   );
 
-  const colContatoVenda = findColIndex((h) =>
-    (h.includes('contato') && h.includes('venda')) ||
-    h.includes('contato -> ve') || h.includes('contato → ve') || h.includes('contato ? ve')
+  const colContatoVenda = findColIndex(
+    (h) =>
+      (h.includes('contato') && h.includes('venda')) ||
+      h.includes('contato -> ve') ||
+      h.includes('contato → ve') ||
+      h.includes('contato ? ve')
   );
 
   const colMargemBruta = findColIndex((h) => h.includes('margem'));
@@ -159,7 +177,9 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
   const colLucroMedio = findColIndex((h) => h.includes('lucro') && (h.includes('médio') || h.includes('medio')));
 
   // Base metric columns
-  const colData = findColIndex((h) => h === 'data' || h.includes('periodo') || h.includes('período') || h.includes('mês') || h.includes('mes'));
+  const colData = findColIndex(
+    (h) => h === 'data' || h.includes('periodo') || h.includes('período') || h.includes('mês') || h.includes('mes')
+  );
   const colImpressoes = findColIndex((h) => h.includes('impress'));
   const colAlcance = findColIndex((h) => h.includes('alcance') || h.includes('reach'));
   const colClick = findColIndex((h) => h.includes('click') || h.includes('clique'));
@@ -167,19 +187,55 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
   // Contatos
   let colContatos = findColIndex((h) => h === 'contatos' || h === 'contato' || h === 'leads' || h === 'lead');
   if (colContatos === -1) {
-    colContatos = findColIndex((h) => (h.includes('contato') || h.includes('lead')) && !isRateHeader(h) && !h.includes('orçamento') && !h.includes('orcamento') && !h.includes('venda'));
+    colContatos = findColIndex(
+      (h) =>
+        (h.includes('contato') || h.includes('lead')) &&
+        !isRateHeader(h) &&
+        !h.includes('orçamento') &&
+        !h.includes('orcamento') &&
+        !h.includes('venda')
+    );
   }
 
   // Orçamentos
-  let colOrcamentos = findColIndex((h) => h === 'orçamentos' || h === 'orcamentos' || h === 'orçamento' || h === 'orcamento' || h === 'propostas' || h === 'proposta');
+  let colOrcamentos = findColIndex(
+    (h) =>
+      h === 'orçamentos' ||
+      h === 'orcamentos' ||
+      h === 'orçamento' ||
+      h === 'orcamento' ||
+      h === 'propostas' ||
+      h === 'proposta'
+  );
   if (colOrcamentos === -1) {
-    colOrcamentos = findColIndex((h) => (h.includes('orçamento') || h.includes('orcamento') || h.includes('proposta')) && !isRateHeader(h) && !h.includes('contato') && !h.includes('venda'));
+    colOrcamentos = findColIndex(
+      (h) =>
+        (h.includes('orçamento') || h.includes('orcamento') || h.includes('proposta')) &&
+        !isRateHeader(h) &&
+        !h.includes('contato') &&
+        !h.includes('venda')
+    );
   }
 
   // Vendas
-  let colVendas = findColIndex((h) => h === 'vendas' || h === 'venda' || h === 'qtd vendas' || h === 'qtd de vendas' || h === 'num vendas' || h === 'número de vendas');
+  let colVendas = findColIndex(
+    (h) =>
+      h === 'vendas' ||
+      h === 'venda' ||
+      h === 'qtd vendas' ||
+      h === 'qtd de vendas' ||
+      h === 'num vendas' ||
+      h === 'número de vendas'
+  );
   if (colVendas === -1) {
-    colVendas = findColIndex((h) => (h.includes('venda') || h.includes('vendas')) && !isRateHeader(h) && !h.includes('contato') && !h.includes('orçamento') && !h.includes('orcamento'));
+    colVendas = findColIndex(
+      (h) =>
+        (h.includes('venda') || h.includes('vendas')) &&
+        !isRateHeader(h) &&
+        !h.includes('contato') &&
+        !h.includes('orçamento') &&
+        !h.includes('orcamento')
+    );
   }
 
   // Faturamento
@@ -195,12 +251,27 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
   }
 
   // Investimento (Investment / Ads Spend)
-  let colInvestimento = findColIndex((h) =>
-    h === 'investimento' || h === 'investimentos' || h === 'investimento total' || h === 'valor investido' || h === 'gasto' || h === 'gastos' || h === 'custo' || h === 'spend' || h === 'ads'
+  let colInvestimento = findColIndex(
+    (h) =>
+      h === 'investimento' ||
+      h === 'investimentos' ||
+      h === 'investimento total' ||
+      h === 'valor investido' ||
+      h === 'gasto' ||
+      h === 'gastos' ||
+      h === 'custo' ||
+      h === 'spend' ||
+      h === 'ads'
   );
   if (colInvestimento === -1) {
-    colInvestimento = findColIndex((h) =>
-      (h.includes('invest') || h.includes('gasto') || h.includes('custo') || h.includes('spend') || h.includes('ads')) && !isRateHeader(h)
+    colInvestimento = findColIndex(
+      (h) =>
+        (h.includes('invest') ||
+          h.includes('gasto') ||
+          h.includes('custo') ||
+          h.includes('spend') ||
+          h.includes('ads')) &&
+        !isRateHeader(h)
     );
   }
 
@@ -213,29 +284,16 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     }
 
     const rawDataVal = colData !== -1 ? row[colData] : null;
-    const hasAnyMetricData = [
-      colImpressoes,
-      colAlcance,
-      colClick,
-      colContatos,
-      colOrcamentos,
-      colVendas,
-      colFaturamento,
-      colLucro,
-      colInvestimento,
-    ].some((c) => c !== -1 && row[c] !== undefined && row[c] !== null && String(row[c]).trim() !== '');
-
-    // Skip empty trailing date rows with no metrics
-    if (!hasAnyMetricData && !rawDataVal) {
-      continue;
-    }
-    if (!hasAnyMetricData && row.filter((c) => c !== null && c !== undefined && String(c).trim() !== '').length <= 1) {
+    const hasAnyCell = row.some((c) => c !== null && c !== undefined && String(c).trim() !== '');
+    if (!hasAnyCell) {
       continue;
     }
 
-    const dataName = rawDataVal !== null && rawDataVal !== undefined && String(rawDataVal).trim() !== ''
-      ? formatDateCell(rawDataVal)
-      : `Período ${i - headerRowIndex}`;
+    const dataName =
+      rawDataVal !== null && rawDataVal !== undefined && String(rawDataVal).trim() !== ''
+        ? formatDateCell(rawDataVal)
+        : `Período ${i - headerRowIndex}`;
+
     const impressoes = colImpressoes !== -1 ? parsePtBrNumber(row[colImpressoes]) : 0;
     const alcance = colAlcance !== -1 ? parsePtBrNumber(row[colAlcance]) : 0;
     const click = colClick !== -1 ? parsePtBrNumber(row[colClick]) : 0;
@@ -267,16 +325,24 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
       () => (faturamento > 0 ? (lucroBruto / faturamento) * 100 : 0)
     );
 
-    const ticketMedio = colTicketMedio !== -1 && row[colTicketMedio] !== undefined
-      ? parsePtBrNumber(row[colTicketMedio])
-      : vendas > 0 ? faturamento / vendas : 0;
+    const ticketMedio =
+      colTicketMedio !== -1 && row[colTicketMedio] !== undefined && String(row[colTicketMedio]).trim() !== ''
+        ? parsePtBrNumber(row[colTicketMedio])
+        : vendas > 0
+        ? faturamento / vendas
+        : 0;
 
-    const lucroBrutoMedio = colLucroMedio !== -1 && row[colLucroMedio] !== undefined
-      ? parsePtBrNumber(row[colLucroMedio])
-      : vendas > 0 ? lucroBruto / vendas : 0;
+    const lucroBrutoMedio =
+      colLucroMedio !== -1 && row[colLucroMedio] !== undefined && String(row[colLucroMedio]).trim() !== ''
+        ? parsePtBrNumber(row[colLucroMedio])
+        : vendas > 0
+        ? lucroBruto / vendas
+        : 0;
 
+    // Stable ID based on row index and date
+    const cleanDateId = dataName.replace(/[^a-zA-Z0-9]/g, '_');
     periods.push({
-      id: `p_${i}_${Date.now()}`,
+      id: `p_${i}_${cleanDateId}`,
       data: dataName,
       impressoes,
       alcance,

@@ -6,6 +6,33 @@ export const DEFAULT_SHAREPOINT_URL =
 export const DEFAULT_GOOGLE_SHEETS_URL =
   'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
 
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
+
+/**
+ * Safe fetch helper with 15s timeout and cache-busting headers
+ */
+async function safeFetchWithNoCache(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        ...(options.headers || {}),
+      },
+      signal: controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Downloads a spreadsheet from Google Sheets (.xlsx format)
  */
@@ -15,29 +42,21 @@ export async function fetchGoogleSpreadsheetBuffer(targetUrl: string): Promise<A
     throw new Error('Link do Google Planilhas inválido. Formato esperado: https://docs.google.com/spreadsheets/d/ID/edit');
   }
   const sheetId = match[1];
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx&_ts=${Date.now()}`;
 
-  const res = await fetch(exportUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-    },
+  const res = await safeFetchWithNoCache(exportUrl, {
+    headers: { 'User-Agent': USER_AGENT },
     redirect: 'follow',
   });
 
   const contentType = res.headers.get('content-type') || '';
   if (contentType.includes('text/html')) {
     throw new Error(
-      'O Google Planilhas retornou uma página HTML (possivelmente tela de login ou permissão negada). Verifique se a planilha está pública para qualquer pessoa com o link.'
+      'O Google Planilhas retornou uma página HTML. Verifique se a planilha está pública para qualquer pessoa com o link.'
     );
   }
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403 || res.url.includes('accounts.google.com')) {
-      throw new Error(
-        'A planilha do Google Planilhas não está pública. No Google Planilhas, selecione "Qualquer pessoa com o link".'
-      );
-    }
     throw new Error(`Erro ao baixar Google Planilha (HTTP ${res.status}): ${res.statusText}`);
   }
 
@@ -53,17 +72,17 @@ export async function fetchGoogleSpreadsheetBuffer(targetUrl: string): Promise<A
  * Downloads a spreadsheet from SharePoint / OneDrive (.xlsx format)
  */
 export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<ArrayBuffer> {
-  const userAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
+  const timestamp = Date.now();
+  const downloadUrl = targetUrl.includes('?')
+    ? `${targetUrl}&download=1&_nocache=${timestamp}`
+    : `${targetUrl}?download=1&_nocache=${timestamp}`;
 
-  // Strategy 1: Direct &download=1 with redirect: follow
-  const downloadUrl = targetUrl.includes('?') ? `${targetUrl}&download=1` : `${targetUrl}?download=1`;
-  console.log(`[SharePoint Sync] Strategy 1: Attempting direct &download=1 fetch: ${downloadUrl}`);
-  
+  console.log(`[SharePoint Sync] Strategy 1: Attempting fresh download from: ${downloadUrl}`);
+
   try {
-    const directRes = await fetch(downloadUrl, {
+    const directRes = await safeFetchWithNoCache(downloadUrl, {
       headers: {
-        'User-Agent': userAgent,
+        'User-Agent': USER_AGENT,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
       },
@@ -74,21 +93,18 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
     if (directRes.ok && !directContentType.includes('text/html')) {
       const directBuf = await directRes.arrayBuffer();
       const directBytes = new Uint8Array(directBuf);
-      // Verify XLSX / ZIP signature (PK\x03\x04: 0x50, 0x4b, 0x03, 0x04)
       if (directBytes.length > 500 && directBytes[0] === 0x50 && directBytes[1] === 0x4b) {
-        console.log(`[SharePoint Sync] Strategy 1 succeeded! Downloaded ${directBuf.byteLength} bytes.`);
         return directBuf;
       }
     }
   } catch (directErr) {
-    console.warn('[SharePoint Sync] Strategy 1 direct download failed:', directErr);
+    console.warn('[SharePoint Sync] Strategy 1 failed, trying session-based:', directErr);
   }
 
   // Strategy 2: Session-based WOPI / download.aspx extractor
-  console.log(`[SharePoint Sync] Strategy 2: Requesting initial sharing URL: ${targetUrl}`);
-  const initialRes = await fetch(targetUrl, {
+  const initialRes = await safeFetchWithNoCache(`${targetUrl}&_t=${timestamp}`, {
     headers: {
-      'User-Agent': userAgent,
+      'User-Agent': USER_AGENT,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
     },
@@ -102,7 +118,7 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
         return cookies.map((c: string) => c.split(';')[0]).filter(Boolean).join('; ');
       }
     } catch {
-      // fallback
+      // ignore
     }
     const single = res.headers.get('set-cookie');
     return single ? single.split(';')[0] : '';
@@ -119,7 +135,6 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
 
   const destinationUrl = location || targetUrl;
 
-  // Fast direct download if sourcedoc or UniqueId is present
   const sourcedocMatch =
     destinationUrl.match(/sourcedoc=(%7B|\{)?([a-f0-9-]+)(%7D|\})?/i) ||
     destinationUrl.match(/UniqueId=([a-f0-9-]+)/i);
@@ -130,12 +145,11 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
       const origin = new URL(destinationUrl).origin;
       const pathMatch = destinationUrl.match(/(\/personal\/[^\/]+)/);
       const personalPath = pathMatch ? pathMatch[1] : '';
-      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false`;
+      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false&_nocache=${timestamp}`;
 
-      console.log(`[SharePoint Sync] Fast direct download URL: ${fastDownloadUrl}`);
-      const fastDlRes = await fetch(fastDownloadUrl, {
+      const fastDlRes = await safeFetchWithNoCache(fastDownloadUrl, {
         headers: {
-          'User-Agent': userAgent,
+          'User-Agent': USER_AGENT,
           Cookie: cookieHeader,
         },
         redirect: 'follow',
@@ -146,7 +160,6 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
         const buf = await fastDlRes.arrayBuffer();
         const bytes = new Uint8Array(buf);
         if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
-          console.log(`[SharePoint Sync] Fast download succeeded! ${buf.byteLength} bytes.`);
           return buf;
         }
       }
@@ -156,9 +169,9 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
   }
 
   // Follow destination
-  const docRes = await fetch(destinationUrl, {
+  const docRes = await safeFetchWithNoCache(destinationUrl, {
     headers: {
-      'User-Agent': userAgent,
+      'User-Agent': USER_AGENT,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       Cookie: cookieHeader,
     },
@@ -187,10 +200,10 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
     try {
       const wopiObj = JSON.parse(wopiMatch[1]);
       if (wopiObj.FileGetUrl) {
-        console.log(`[SharePoint Sync] Downloading from WOPI FileGetUrl...`);
-        const fileRes = await fetch(wopiObj.FileGetUrl, {
+        const wopiUrl = `${wopiObj.FileGetUrl}&_ts=${timestamp}`;
+        const fileRes = await safeFetchWithNoCache(wopiUrl, {
           headers: {
-            'User-Agent': userAgent,
+            'User-Agent': USER_AGENT,
             Cookie: cookieHeader,
           },
           redirect: 'follow',
@@ -210,32 +223,6 @@ export async function fetchSharePointWorkbookBuffer(targetUrl: string): Promise<
     }
   }
 
-  // Fallback with download.aspx
-  const fallbackSourcedocMatch = destinationUrl.match(/sourcedoc=([^&]+)/) || destinationUrl.match(/UniqueId=([^&]+)/);
-  if (fallbackSourcedocMatch && fallbackSourcedocMatch[1]) {
-    const rawId = fallbackSourcedocMatch[1];
-    const origin = new URL(destinationUrl).origin;
-    const downloadUrl = `${origin}/personal/giovana_gomes_dpaschoal_com_br/_layouts/15/download.aspx?sourcedoc=${rawId}`;
-
-    const dlRes = await fetch(downloadUrl, {
-      headers: {
-        'User-Agent': userAgent,
-        Cookie: cookieHeader,
-      },
-      redirect: 'follow',
-    });
-
-    const dlContentType = dlRes.headers.get('content-type') || '';
-    if (dlRes.ok && !dlContentType.includes('text/html')) {
-      const buf = await dlRes.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
-        return buf;
-      }
-    }
-  }
-
-  // If we reached here and received HTML
   throw new Error('O SharePoint bloqueou o download e retornou um HTML em vez do arquivo Excel.');
 }
 

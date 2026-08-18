@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PeriodData } from './types';
-import { DEFAULT_PERIODS, parseMatrixToPeriods } from './utils/csvParser';
+import { DEFAULT_PERIODS } from './utils/csvParser';
 import { formatCurrency, formatPercent } from './utils/formatters';
 import { MetricCard } from './components/MetricCard';
 import { FunnelChart } from './components/FunnelChart';
@@ -12,10 +12,18 @@ import { ManualDataEditorModal } from './components/ManualDataEditorModal';
 import {
   SharepointSyncModal,
   DEFAULT_SPREADSHEET_LINK,
-  DEFAULT_SHAREPOINT_LINK,
 } from './components/SharepointSyncModal';
 import { fetchAndParseOnlineSpreadsheet } from './utils/spreadsheetSync';
-import { Calendar, Layers, Cloud, CheckCircle2, AlertCircle, X, FileSpreadsheet } from 'lucide-react';
+import {
+  Calendar,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+} from 'lucide-react';
 
 export default function App() {
   const [periods, setPeriods] = useState<PeriodData[]>(() => {
@@ -32,7 +40,14 @@ export default function App() {
   });
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>(() => {
-    return periods[0]?.id || DEFAULT_PERIODS[0].id;
+    try {
+      const savedId = localStorage.getItem('dpaschoal_selected_period_id');
+      if (savedId) return savedId;
+    } catch {
+      // ignore
+    }
+    // Default to the latest period if available, otherwise first
+    return periods.length > 0 ? periods[periods.length - 1].id : DEFAULT_PERIODS[0].id;
   });
 
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -72,6 +87,15 @@ export default function App() {
     }
   }, [periods]);
 
+  // Save selected period id
+  useEffect(() => {
+    try {
+      localStorage.setItem('dpaschoal_selected_period_id', selectedPeriodId);
+    } catch {
+      // ignore
+    }
+  }, [selectedPeriodId]);
+
   const handleSaveSharepointUrl = (url: string) => {
     const cleanUrl = url.trim() || DEFAULT_SPREADSHEET_LINK;
     setSharepointUrl(cleanUrl);
@@ -95,10 +119,40 @@ export default function App() {
         localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SPREADSHEET_LINK);
       }
 
+      // Capture currently active date before updating
+      const previousSelectedPeriod = periods.find((p) => p.id === selectedPeriodId);
+      const previousDate = previousSelectedPeriod?.data;
+      const wasConsolidated = selectedPeriodId === 'consolidated';
+      const previousCount = periods.length;
+
       const result = await fetchAndParseOnlineSpreadsheet(targetUrl);
       setPeriods(result.periods);
-      if (result.periods.length > 0) {
-        setSelectedPeriodId(result.periods[0].id);
+
+      let focusedPeriodName = '';
+
+      if (wasConsolidated) {
+        setSelectedPeriodId('consolidated');
+        focusedPeriodName = 'Consolidado (Todos)';
+      } else if (result.periods.length > previousCount) {
+        // A new row was added to the spreadsheet! Focus on the latest row.
+        const newest = result.periods[result.periods.length - 1];
+        setSelectedPeriodId(newest.id);
+        focusedPeriodName = `Novo período "${newest.data}"`;
+      } else if (previousDate) {
+        // Keep the exact same period date active so modifications are immediately visible!
+        const matching = result.periods.find((p) => p.data === previousDate);
+        if (matching) {
+          setSelectedPeriodId(matching.id);
+          focusedPeriodName = `Período "${matching.data}"`;
+        } else if (result.periods.length > 0) {
+          const latest = result.periods[result.periods.length - 1];
+          setSelectedPeriodId(latest.id);
+          focusedPeriodName = `Período "${latest.data}"`;
+        }
+      } else if (result.periods.length > 0) {
+        const latest = result.periods[result.periods.length - 1];
+        setSelectedPeriodId(latest.id);
+        focusedPeriodName = `Período "${latest.data}"`;
       }
 
       const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -107,13 +161,13 @@ export default function App() {
 
       setSyncToast({
         type: 'success',
-        message: `Planilha sincronizada! ${result.periods.length} período(s) atualizados com sucesso via ${result.provider}.`,
+        message: `Planilha sincronizada! ${result.periods.length} períodos atualizados. Exibindo ${focusedPeriodName}.`,
       });
 
-      // Auto dismiss success toast after 5s
+      // Auto dismiss success toast after 6s
       setTimeout(() => {
         setSyncToast((prev) => (prev?.type === 'success' ? null : prev));
-      }, 5000);
+      }, 6000);
     } catch (err: any) {
       console.error('Erro na sincronização rápida:', err);
       setSyncToast({
@@ -134,7 +188,7 @@ export default function App() {
 
   const handleReset = () => {
     setPeriods(DEFAULT_PERIODS);
-    setSelectedPeriodId(DEFAULT_PERIODS[0].id);
+    setSelectedPeriodId(DEFAULT_PERIODS[DEFAULT_PERIODS.length - 1].id);
     localStorage.removeItem('dpaschoal_dashboard_periods');
   };
 
@@ -160,21 +214,26 @@ export default function App() {
   const totalAccInvestimento = periods.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
   const totalAccVendas = periods.reduce((acc, p) => acc + p.vendas, 0);
 
-  const totalAccTicketMedio = periods.length > 0
-    ? periods.reduce((acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)), 0) / periods.length
-    : 0;
+  const totalAccTicketMedio =
+    periods.length > 0
+      ? periods.reduce((acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)), 0) /
+        periods.length
+      : 0;
 
-  const totalAccLucroBrutoMedio = periods.length > 0
-    ? periods.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)), 0) / periods.length
-    : 0;
+  const totalAccLucroBrutoMedio =
+    periods.length > 0
+      ? periods.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)), 0) /
+        periods.length
+      : 0;
 
-  const totalAccMargemBruta = periods.length > 0
-    ? periods.reduce((acc, p) => {
-        let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
-        if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
-        return acc + val;
-      }, 0) / periods.length
-    : 0;
+  const totalAccMargemBruta =
+    periods.length > 0
+      ? periods.reduce((acc, p) => {
+          let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+          if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
+          return acc + val;
+        }, 0) / periods.length
+      : 0;
 
   // Variation vs previous period
   let changeFaturamento: number | null = null;
@@ -184,6 +243,8 @@ export default function App() {
   let changeLucroBrutoMedio: number | null = null;
   let changeMargemBruta: number | null = null;
   let compLabel = 'vs. ant.';
+
+  const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
 
   if (isConsolidated) {
     currentImpressoes = periods.reduce((acc, p) => acc + p.impressoes, 0);
@@ -199,7 +260,6 @@ export default function App() {
     currentLucroBrutoMedio = totalAccLucroBrutoMedio;
     currentMargemBruta = totalAccMargemBruta;
 
-    // If consolidated and we have at least 2 periods, compare last vs previous period
     if (periods.length >= 2) {
       const last = periods[periods.length - 1];
       const prev = periods[periods.length - 2];
@@ -218,15 +278,14 @@ export default function App() {
       const prevInv = prev.investimento ?? 0;
 
       changeFaturamento = prev.faturamento > 0 ? ((last.faturamento - prev.faturamento) / prev.faturamento) * 100 : 0;
-      changeInvestimento = prevInv > 0 ? ((lastInv - prevInv) / prevInv) * 100 : (lastInv > 0 ? 100 : 0);
+      changeInvestimento = prevInv > 0 ? ((lastInv - prevInv) / prevInv) * 100 : lastInv > 0 ? 100 : 0;
       changeTicketMedio = prevTM > 0 ? ((lastTM - prevTM) / prevTM) * 100 : 0;
       changeLucroBruto = prev.lucroBruto > 0 ? ((last.lucroBruto - prev.lucroBruto) / prev.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((lastLBM - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((lastMB - prevMB) / prevMB) * 100 : 0;
     }
   } else {
-    const activeIdx = periods.findIndex((p) => p.id === selectedPeriodId);
-    const activePeriod = activeIdx >= 0 ? periods[activeIdx] : periods[0];
+    const activePeriod = activeIdx >= 0 ? periods[activeIdx] : periods[periods.length - 1] || periods[0];
 
     currentImpressoes = activePeriod.impressoes;
     currentAlcance = activePeriod.alcance;
@@ -240,26 +299,54 @@ export default function App() {
 
     currentTicketMedio = activePeriod.ticketMedio ?? (currentVendas > 0 ? currentFaturamento / currentVendas : 0);
     currentLucroBrutoMedio = activePeriod.lucroBrutoMedio ?? (currentVendas > 0 ? currentLucroBruto / currentVendas : 0);
-    currentMargemBruta = activePeriod.margemBruta ?? (currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0);
+    currentMargemBruta =
+      activePeriod.margemBruta ?? (currentFaturamento > 0 ? (currentLucroBruto / currentFaturamento) * 100 : 0);
     if (Math.abs(currentMargemBruta) <= 1.0 && currentMargemBruta !== 0) currentMargemBruta *= 100;
 
     if (activeIdx > 0) {
       const prevPeriod = periods[activeIdx - 1];
       const prevTM = prevPeriod.ticketMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.faturamento / prevPeriod.vendas : 0);
-      const prevLBM = prevPeriod.lucroBrutoMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.lucroBruto / prevPeriod.vendas : 0);
-      let prevMB = prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
+      const prevLBM =
+        prevPeriod.lucroBrutoMedio ?? (prevPeriod.vendas > 0 ? prevPeriod.lucroBruto / prevPeriod.vendas : 0);
+      let prevMB =
+        prevPeriod.margemBruta ?? (prevPeriod.faturamento > 0 ? (prevPeriod.lucroBruto / prevPeriod.faturamento) * 100 : 0);
       if (Math.abs(prevMB) <= 1.0 && prevMB !== 0) prevMB *= 100;
 
       const prevInv = prevPeriod.investimento ?? 0;
 
-      changeFaturamento = prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
-      changeInvestimento = prevInv > 0 ? ((currentInvestimento - prevInv) / prevInv) * 100 : (currentInvestimento > 0 ? 100 : 0);
+      changeFaturamento =
+        prevPeriod.faturamento > 0 ? ((currentFaturamento - prevPeriod.faturamento) / prevPeriod.faturamento) * 100 : 0;
+      changeInvestimento =
+        prevInv > 0 ? ((currentInvestimento - prevInv) / prevInv) * 100 : currentInvestimento > 0 ? 100 : 0;
       changeTicketMedio = prevTM > 0 ? ((currentTicketMedio - prevTM) / prevTM) * 100 : 0;
-      changeLucroBruto = prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
+      changeLucroBruto =
+        prevPeriod.lucroBruto > 0 ? ((currentLucroBruto - prevPeriod.lucroBruto) / prevPeriod.lucroBruto) * 100 : 0;
       changeLucroBrutoMedio = prevLBM > 0 ? ((currentLucroBrutoMedio - prevLBM) / prevLBM) * 100 : 0;
       changeMargemBruta = prevMB > 0 ? ((currentMargemBruta - prevMB) / prevMB) * 100 : 0;
     }
   }
+
+  // Stepper handlers
+  const handlePrevPeriod = () => {
+    if (isConsolidated) {
+      setSelectedPeriodId(periods[periods.length - 1].id);
+      return;
+    }
+    if (activeIdx > 0) {
+      setSelectedPeriodId(periods[activeIdx - 1].id);
+    }
+  };
+
+  const handleNextPeriod = () => {
+    if (isConsolidated) return;
+    if (activeIdx < periods.length - 1) {
+      setSelectedPeriodId(periods[activeIdx + 1].id);
+    } else {
+      setSelectedPeriodId('consolidated');
+    }
+  };
+
+  const latestPeriod = periods.length > 0 ? periods[periods.length - 1] : null;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col text-gray-900 font-sans antialiased selection:bg-[#DC2626]/20">
@@ -305,28 +392,71 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1280px] w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {/* Period Selection Controls */}
+        {/* Period Selection Controls Bar */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-xl border border-gray-200/80 shadow-2xs">
-          <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-600 font-medium">
+          <div className="flex items-center space-x-2 text-xs sm:text-sm text-gray-700 font-semibold">
             <Calendar className="w-4 h-4 text-[#DC2626]" />
-            <span>Filtrar Funil e KPIs por Período:</span>
+            <span>Período Selecionado:</span>
+            <span className="text-xs font-normal text-gray-400">
+              ({periods.length} {periods.length === 1 ? 'dia' : 'dias'} sincronizados)
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {periods.map((p) => (
+            {/* Stepper buttons */}
+            <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200">
               <button
-                key={p.id}
-                onClick={() => setSelectedPeriodId(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  selectedPeriodId === p.id
+                onClick={handlePrevPeriod}
+                disabled={activeIdx === 0}
+                title="Período anterior"
+                className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleNextPeriod}
+                disabled={isConsolidated}
+                title="Próximo período"
+                className="p-1 text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Dropdown Selector */}
+            <select
+              value={selectedPeriodId}
+              onChange={(e) => setSelectedPeriodId(e.target.value)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200/70 focus:outline-hidden focus:ring-2 focus:ring-[#DC2626]/20 cursor-pointer"
+            >
+              <optgroup label="Visão Geral">
+                <option value="consolidated">📊 Consolidado (Todos os {periods.length} períodos)</option>
+              </optgroup>
+              <optgroup label="Períodos / Dias Diários">
+                {periods.map((p, idx) => (
+                  <option key={p.id} value={p.id}>
+                    {idx + 1}. {p.data} {idx === periods.length - 1 ? '🌟 (Último/Recente)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+
+            {/* Quick Button: Latest period */}
+            {latestPeriod && (
+              <button
+                onClick={() => setSelectedPeriodId(latestPeriod.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  selectedPeriodId === latestPeriod.id
                     ? 'bg-[#DC2626] text-white shadow-2xs'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : 'bg-red-50 text-[#DC2626] hover:bg-red-100 border border-red-200/60'
                 }`}
               >
-                {p.data}
+                <Sparkles className="w-3.5 h-3.5" />
+                Último: {latestPeriod.data}
               </button>
-            ))}
+            )}
 
+            {/* Quick Button: Consolidated */}
             <button
               onClick={() => setSelectedPeriodId('consolidated')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
@@ -336,7 +466,7 @@ export default function App() {
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              Consolidado (Todos)
+              Consolidado
             </button>
           </div>
         </div>
@@ -363,10 +493,10 @@ export default function App() {
               comparisonLabel={compLabel}
             />
             <MetricCard
-              label="Margem Bruta"
-              value={formatPercent(currentMargemBruta)}
-              accumulatedValue={formatPercent(totalAccMargemBruta)}
-              changePercent={changeMargemBruta}
+              label="Investimento"
+              value={formatCurrency(currentInvestimento)}
+              accumulatedValue={formatCurrency(totalAccInvestimento)}
+              changePercent={changeInvestimento}
               comparisonLabel={compLabel}
             />
             <MetricCard
@@ -384,18 +514,17 @@ export default function App() {
               comparisonLabel={compLabel}
             />
             <MetricCard
-              label="Investimento"
-              value={formatCurrency(currentInvestimento)}
-              accumulatedValue={formatCurrency(totalAccInvestimento)}
-              changePercent={changeInvestimento}
+              label="Margem Bruta"
+              value={formatPercent(currentMargemBruta)}
+              accumulatedValue={formatPercent(totalAccMargemBruta)}
+              changePercent={changeMargemBruta}
               comparisonLabel={compLabel}
             />
           </div>
 
-          {/* Middle Row: Funnel (Left) & Financial Combo Chart (Right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch pt-2">
-            {/* Left: Funnel Chart with 6 stages */}
-            <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-100 flex flex-col justify-center">
+          {/* Middle Row: Funnel (Left) + Conversion Chart (Right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+            <div className="lg:col-span-6 flex flex-col">
               <FunnelChart
                 impressoes={currentImpressoes}
                 alcance={currentAlcance}
@@ -405,64 +534,60 @@ export default function App() {
                 vendas={currentVendas}
               />
             </div>
-
-            {/* Right: Financial Combo Chart (Faturamento vs Lucro Bruto across periods) */}
-            <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-100 flex flex-col justify-center">
-              <FinancialComboChart periods={periods} />
+            <div className="lg:col-span-6 flex flex-col">
+              <ConversionChart periods={periods} activePeriodId={selectedPeriodId} />
             </div>
           </div>
 
-          {/* Bottom Row: Full-Width Conversion Rates Chart */}
-          <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-100 pt-4">
-            <ConversionChart periods={periods} />
+          {/* Bottom Row: Financial Combo Chart (Full Width) */}
+          <div className="pt-2">
+            <FinancialComboChart periods={periods} activePeriodId={selectedPeriodId} />
           </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="py-6 border-t border-gray-200 text-center text-xs text-gray-400">
-        Dashboard de Conversão & Vendas • DPASCHOAL • Atualização via Planilha (.xlsx / .csv)
-      </footer>
-
-      {/* Modals */}
+      {/* CSV Uploader Modal */}
       <CsvUploaderModal
         isOpen={isCsvModalOpen}
         onClose={() => setIsCsvModalOpen(false)}
         onDataLoaded={(newPeriods) => {
           setPeriods(newPeriods);
-          if (newPeriods.length > 0) {
-            setSelectedPeriodId(newPeriods[0].id);
-          }
+          setSelectedPeriodId(newPeriods[newPeriods.length - 1].id);
         }}
       />
 
+      {/* Manual Data Editor Modal */}
       <ManualDataEditorModal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         periods={periods}
-        onSave={(newPeriods) => {
-          setPeriods(newPeriods);
+        onSave={(updatedPeriods) => {
+          setPeriods(updatedPeriods);
         }}
       />
 
+      {/* SharePoint / OneDrive Sync Modal */}
       <SharepointSyncModal
         isOpen={isSharepointModalOpen}
         onClose={() => setIsSharepointModalOpen(false)}
         currentUrl={sharepointUrl}
         onSaveUrl={handleSaveSharepointUrl}
-        lastSyncTime={lastSyncTime}
-        autoSyncOnLoad={autoSyncOnLoad}
-        onToggleAutoSync={handleToggleAutoSync}
-        onDataLoaded={(newPeriods, info) => {
+        onSyncSuccess={(newPeriods, sheetName) => {
           setPeriods(newPeriods);
           if (newPeriods.length > 0) {
-            setSelectedPeriodId(newPeriods[0].id);
+            setSelectedPeriodId(newPeriods[newPeriods.length - 1].id);
           }
-          if (info?.syncTime) {
-            setLastSyncTime(info.syncTime);
-            localStorage.setItem('dpaschoal_last_sync_time', info.syncTime);
-          }
+          const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          setLastSyncTime(timeStr);
+          localStorage.setItem('dpaschoal_last_sync_time', timeStr);
+          setSyncToast({
+            type: 'success',
+            message: `Planilha sincronizada (${newPeriods.length} períodos da aba "${sheetName}")!`,
+          });
         }}
+        lastSyncTime={lastSyncTime}
+        autoSync={autoSyncOnLoad}
+        onToggleAutoSync={handleToggleAutoSync}
       />
     </div>
   );

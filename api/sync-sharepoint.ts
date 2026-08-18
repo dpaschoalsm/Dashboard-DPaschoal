@@ -13,7 +13,7 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
 
 /**
- * Safe fetch helper with 15s timeout
+ * Safe fetch helper with 15s timeout and cache prevention
  */
 async function safeFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
@@ -21,6 +21,13 @@ async function safeFetch(url: string, options: RequestInit = {}): Promise<Respon
   try {
     const res = await fetch(url, {
       ...options,
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        ...(options.headers || {}),
+      },
       signal: controller.signal,
     });
     return res;
@@ -83,7 +90,7 @@ function parseExcelBuffer(buffer: Buffer): { rows: any[][]; sheetName: string } 
 }
 
 /**
- * Downloads binary buffer from Google Sheets
+ * Downloads binary buffer from Google Sheets with fresh cache buster
  */
 async function fetchGoogleSheets(targetUrl: string): Promise<Buffer> {
   const match = targetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -91,7 +98,7 @@ async function fetchGoogleSheets(targetUrl: string): Promise<Buffer> {
     throw new Error('Link do Google Planilhas inválido.');
   }
   const sheetId = match[1];
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx&_nocache=${Date.now()}`;
 
   const res = await safeFetch(exportUrl, {
     headers: { 'User-Agent': USER_AGENT },
@@ -112,11 +119,14 @@ async function fetchGoogleSheets(targetUrl: string): Promise<Buffer> {
 }
 
 /**
- * Downloads binary buffer from SharePoint / OneDrive
+ * Downloads binary buffer from SharePoint / OneDrive with cache busting
  */
 async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
-  // Strategy 1: Direct &download=1
-  const downloadUrl = targetUrl.includes('?') ? `${targetUrl}&download=1` : `${targetUrl}?download=1`;
+  const timestamp = Date.now();
+  const downloadUrl = targetUrl.includes('?')
+    ? `${targetUrl}&download=1&_nocache=${timestamp}`
+    : `${targetUrl}?download=1&_nocache=${timestamp}`;
+
   try {
     const directRes = await safeFetch(downloadUrl, {
       headers: {
@@ -139,8 +149,7 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
     // Continue to strategy 2
   }
 
-  // Strategy 2: Session extractor
-  const initialRes = await safeFetch(targetUrl, {
+  const initialRes = await safeFetch(`${targetUrl}&_t=${timestamp}`, {
     headers: {
       'User-Agent': USER_AGENT,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -171,7 +180,6 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
 
   const destinationUrl = location || targetUrl;
 
-  // Direct download if UniqueId or sourcedoc is in URL
   const sourcedocMatch =
     destinationUrl.match(/sourcedoc=(%7B|\{)?([a-f0-9-]+)(%7D|\})?/i) ||
     destinationUrl.match(/UniqueId=([a-f0-9-]+)/i);
@@ -182,7 +190,7 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
       const origin = new URL(destinationUrl).origin;
       const pathMatch = destinationUrl.match(/(\/personal\/[^\/]+)/);
       const personalPath = pathMatch ? pathMatch[1] : '';
-      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false`;
+      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false&_nocache=${timestamp}`;
 
       const fastRes = await safeFetch(fastDownloadUrl, {
         headers: {
@@ -201,11 +209,10 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
         }
       }
     } catch (e) {
-      // Continue to next step
+      // Continue
     }
   }
 
-  // Follow destination
   const docRes = await safeFetch(destinationUrl, {
     headers: {
       'User-Agent': USER_AGENT,
@@ -231,14 +238,13 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
   }
 
   const docText = await docRes.text();
-
-  // Extract WOPI
   const wopiMatch = docText.match(/var _wopiContextJson\s*=\s*(\{[\s\S]*?\});/);
   if (wopiMatch && wopiMatch[1]) {
     try {
       const wopiObj = JSON.parse(wopiMatch[1]);
       if (wopiObj.FileGetUrl) {
-        const fileRes = await safeFetch(wopiObj.FileGetUrl, {
+        const wopiUrl = `${wopiObj.FileGetUrl}&_ts=${timestamp}`;
+        const fileRes = await safeFetch(wopiUrl, {
           headers: {
             'User-Agent': USER_AGENT,
             Cookie: cookieHeader,
@@ -267,7 +273,7 @@ async function fetchSharePoint(targetUrl: string): Promise<Buffer> {
  * Main Serverless API Handler
  */
 export default async function handler(req: any, res: any) {
-  // CORS configuration
+  // CORS & Anti-Cache configuration
   try {
     if (res && typeof res.setHeader === 'function') {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -277,9 +283,12 @@ export default async function handler(req: any, res: any) {
         'Access-Control-Allow-Headers',
         'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
       );
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
     }
   } catch (corsErr) {
-    console.warn('[API Handler] CORS warning:', corsErr);
+    console.warn('[API Handler] Header warning:', corsErr);
   }
 
   if (req.method === 'OPTIONS') {
@@ -331,6 +340,7 @@ export default async function handler(req: any, res: any) {
         provider: isGoogleSheets ? 'Google Sheets' : 'SharePoint',
         sheetName,
         rows,
+        timestamp: new Date().toISOString(),
       });
     } catch (parseErr: any) {
       console.error('[API Parse Error]:', parseErr);
