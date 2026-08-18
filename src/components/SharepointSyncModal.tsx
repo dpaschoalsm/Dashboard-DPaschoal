@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
-import { Cloud, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, X, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Cloud, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, X, Save, FileSpreadsheet } from 'lucide-react';
 import { PeriodData } from '../types';
 import { parseMatrixToPeriods } from '../utils/csvParser';
 
-export const DEFAULT_SHAREPOINT_LINK =
-  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=bh8fTe';
+export const DEFAULT_SPREADSHEET_LINK =
+  'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
+
+export const DEFAULT_SHAREPOINT_LINK = DEFAULT_SPREADSHEET_LINK;
 
 interface SharepointSyncModalProps {
   isOpen: boolean;
@@ -29,16 +31,16 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
 }) => {
   const [urlInput, setUrlInput] = useState(() => {
     if (currentUrl && !currentUrl.includes('eeYERK')) return currentUrl;
-    return DEFAULT_SHAREPOINT_LINK;
+    return DEFAULT_SPREADSHEET_LINK;
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentUrl) {
       if (currentUrl.includes('eeYERK')) {
-        setUrlInput(DEFAULT_SHAREPOINT_LINK);
+        setUrlInput(DEFAULT_SPREADSHEET_LINK);
       } else {
         setUrlInput(currentUrl);
       }
@@ -65,12 +67,12 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
         data = JSON.parse(responseText);
       } catch {
         throw new Error(
-          'O link do SharePoint retornou uma página restrita de login da Microsoft. É necessário que o link seja gerado no SharePoint com permissão "Qualquer pessoa com o link" ou faça o upload manual do arquivo .xlsx/.csv no botão Upload.'
+          'A planilha retornou uma resposta inválida. Verifique se o link possui permissão pública de leitura.'
         );
       }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao sincronizar com o SharePoint.');
+        throw new Error(data.error || 'Falha ao sincronizar com a planilha.');
       }
 
       if (!data.rows || data.rows.length === 0) {
@@ -84,14 +86,16 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
       onSaveUrl(urlInput);
 
       const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      setSuccessMsg(`Sincronização concluída com sucesso! ${parsedPeriods.length} período(s) carregados da aba "${data.sheetName}".`);
+      setSuccessMsg(
+        `Sincronização concluída com sucesso via ${data.provider || 'Nuvem'}! ${parsedPeriods.length} período(s) diários carregados da aba "${data.sheetName}".`
+      );
 
       onDataLoaded(parsedPeriods, {
         sheetName: data.sheetName,
         syncTime: timeStr,
       });
     } catch (err: any) {
-      console.error('Erro na sincronização SharePoint:', err);
+      console.error('Erro na sincronização da planilha:', err);
       setErrorMsg(err.message || 'Não foi possível baixar e processar os dados da planilha.');
     } finally {
       setIsLoading(false);
@@ -99,11 +103,13 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
   };
 
   const handleResetDefaultUrl = () => {
-    setUrlInput(DEFAULT_SHAREPOINT_LINK);
-    onSaveUrl(DEFAULT_SHAREPOINT_LINK);
+    setUrlInput(DEFAULT_SPREADSHEET_LINK);
+    onSaveUrl(DEFAULT_SPREADSHEET_LINK);
     setErrorMsg(null);
-    setSuccessMsg('Link restaurado para o padrão corporativo.');
+    setSuccessMsg('Link restaurado para a planilha padrão do Google.');
   };
+
+  const isGoogleSheets = urlInput.includes('docs.google.com/spreadsheets');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
@@ -119,10 +125,10 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold leading-tight">
-                Sincronização SharePoint / Excel Online
+                Sincronização de Planilha Online
               </h2>
               <p className="text-xs text-blue-100 font-medium">
-                Conecte a planilha para atualizar o dashboard automaticamente
+                Google Planilhas (Google Sheets) ou SharePoint / Excel Online
               </p>
             </div>
           </div>
@@ -138,13 +144,13 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
         <div className="p-6 space-y-5 overflow-y-auto">
           {/* Status info */}
           <div className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-3.5 flex items-start gap-3 text-xs text-blue-900">
-            <Cloud className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-semibold text-blue-950">
-                Link da Planilha Salvo
+                {isGoogleSheets ? 'Google Planilhas Conectado' : 'Link de Planilha Conectado'}
               </p>
               <p className="text-blue-800 leading-relaxed">
-                O dashboard se conecta diretamente à planilha no SharePoint e processa as colunas de métricas financeiras e funil de conversão.
+                O dashboard sincroniza diretamente todas as colunas de métricas, períodos diários e taxas de conversão do funil.
               </p>
               {lastSyncTime && (
                 <p className="text-[11px] font-semibold text-blue-700 pt-0.5">
@@ -158,14 +164,14 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-gray-800">
-                URL de Compartilhamento do SharePoint
+                Link de Compartilhamento (Google Planilhas ou SharePoint)
               </label>
               <button
                 type="button"
                 onClick={handleResetDefaultUrl}
                 className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold hover:underline"
               >
-                Restaurar link padrão
+                Usar Google Planilhas padrão
               </button>
             </div>
             <div className="relative">
@@ -177,14 +183,14 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
                   setErrorMsg(null);
                   setSuccessMsg(null);
                 }}
-                placeholder="https://suaempresa-my.sharepoint.com/:x:/g/personal/..."
+                placeholder="https://docs.google.com/spreadsheets/d/... ou SharePoint"
                 className="w-full px-3.5 py-2.5 text-xs text-gray-800 font-mono bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none transition-all pr-10"
               />
               <a
                 href={urlInput}
                 target="_blank"
                 rel="noreferrer"
-                title="Abrir no SharePoint"
+                title="Abrir planilha no navegador"
                 className="absolute right-2.5 top-2.5 text-gray-400 hover:text-blue-600 p-0.5 rounded transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />

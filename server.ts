@@ -8,9 +8,46 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Default saved SharePoint URL provided by user
-const DEFAULT_SHAREPOINT_URL =
-  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=bh8fTe';
+// Default saved spreadsheet URL provided by user (Google Sheets / SharePoint)
+const DEFAULT_SPREADSHEET_URL =
+  'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
+
+/**
+ * Downloads a spreadsheet from Google Sheets
+ */
+async function fetchGoogleSpreadsheet(targetUrl: string): Promise<ArrayBuffer> {
+  const match = targetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match || !match[1]) {
+    throw new Error('Link do Google Planilhas inválido. Formato esperado: https://docs.google.com/spreadsheets/d/ID/edit');
+  }
+  const sheetId = match[1];
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+
+  console.log(`[Spreadsheet Sync] Downloading Google Sheet from: ${exportUrl}`);
+  const res = await fetch(exportUrl, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    },
+    redirect: 'follow',
+  });
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403 || res.url.includes('accounts.google.com')) {
+      throw new Error(
+        'A planilha do Google Planilhas não está pública. No Google Planilhas, clique em "Compartilhar" e selecione "Qualquer pessoa com o link pode ler".'
+      );
+    }
+    throw new Error(`Erro ao baixar Google Planilha (HTTP ${res.status}): ${res.statusText}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  if (arrayBuffer.byteLength < 100) {
+    throw new Error('A planilha do Google retornou vazia ou requer permissões de visualização.');
+  }
+
+  return arrayBuffer;
+}
 
 /**
  * Downloads a spreadsheet from SharePoint / OneDrive using multi-step session token extraction
@@ -159,17 +196,24 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
   throw new Error('Não foi possível obter o arquivo binário da planilha a partir do link fornecido.');
 }
 
-// API Route: Sync / Fetch data from SharePoint
+// API Route: Sync / Fetch data from Google Sheets or SharePoint
 app.post('/api/sync-sharepoint', async (req, res) => {
   try {
-    const rawUrl = (req.body.url || DEFAULT_SHAREPOINT_URL).trim();
+    const rawUrl = (req.body.url || DEFAULT_SPREADSHEET_URL).trim();
     if (!rawUrl) {
-      return res.status(400).json({ error: 'URL do SharePoint não fornecida.' });
+      return res.status(400).json({ error: 'URL da planilha não fornecida.' });
     }
 
-    console.log(`[SharePoint Sync] Starting sync for: ${rawUrl}`);
+    console.log(`[Spreadsheet Sync] Starting sync for: ${rawUrl}`);
 
-    const arrayBuffer = await fetchSharePointWorkbook(rawUrl);
+    let arrayBuffer: ArrayBuffer;
+    const isGoogleSheets = rawUrl.includes('docs.google.com/spreadsheets');
+
+    if (isGoogleSheets) {
+      arrayBuffer = await fetchGoogleSpreadsheet(rawUrl);
+    } else {
+      arrayBuffer = await fetchSharePointWorkbook(rawUrl);
+    }
 
     // Parse XLSX Workbook
     const workbook = XLSX.read(new Uint8Array(arrayBuffer), {
@@ -192,10 +236,11 @@ app.post('/api/sync-sharepoint', async (req, res) => {
       dateNF: 'yyyy-mm-dd',
     });
 
-    console.log(`[SharePoint Sync] Loaded sheet "${firstSheetName}" with ${rows.length} rows.`);
+    console.log(`[Spreadsheet Sync] Loaded sheet "${firstSheetName}" with ${rows.length} rows.`);
 
     return res.json({
       success: true,
+      provider: isGoogleSheets ? 'Google Sheets' : 'SharePoint',
       sheetName: firstSheetName,
       allSheets: workbook.SheetNames,
       rows,
@@ -203,9 +248,9 @@ app.post('/api/sync-sharepoint', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
-    console.error('[SharePoint Sync] Fetch error:', err);
+    console.error('[Spreadsheet Sync] Fetch error:', err);
     return res.status(500).json({
-      error: `Erro ao conectar com o SharePoint: ${err.message || 'erro interno'}`,
+      error: `Erro ao conectar com a planilha: ${err.message || 'erro interno'}`,
     });
   }
 });
@@ -213,7 +258,7 @@ app.post('/api/sync-sharepoint', async (req, res) => {
 // API Route: Get default configuration
 app.get('/api/config', (req, res) => {
   res.json({
-    defaultSharepointUrl: DEFAULT_SHAREPOINT_URL,
+    defaultSpreadsheetUrl: DEFAULT_SPREADSHEET_URL,
   });
 });
 

@@ -70,20 +70,20 @@ export const ExportHeader: React.FC<ExportHeaderProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-          {/* SharePoint Sync Button Group */}
+          {/* Online Spreadsheet Sync Button Group */}
           <div className="flex items-center rounded-lg border border-blue-200 bg-blue-50/60 p-0.5 shadow-2xs">
             <button
               onClick={onQuickSyncSharepoint}
               disabled={isSyncingSharepoint}
-              title={lastSyncTime ? `Atualizar agora do SharePoint (Última: ${lastSyncTime})` : 'Sincronizar dados do SharePoint'}
+              title={lastSyncTime ? `Atualizar planilha online agora (Última: ${lastSyncTime})` : 'Sincronizar dados da planilha online (Google Sheets / SharePoint)'}
               className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 hover:bg-blue-100/70 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${isSyncingSharepoint ? 'animate-spin' : ''}`} />
-              <span>{isSyncingSharepoint ? 'Sincronizando...' : 'Atualizar SharePoint'}</span>
+              <span>{isSyncingSharepoint ? 'Sincronizando...' : 'Atualizar Planilha'}</span>
             </button>
             <button
               onClick={onOpenSharepointModal}
-              title="Configurações do link do SharePoint"
+              title="Configurações do link da Planilha Online"
               className="px-1.5 py-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100/70 rounded-md transition-colors border-l border-blue-200"
             >
               <Cloud className="w-3.5 h-3.5" />

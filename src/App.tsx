@@ -9,8 +9,8 @@ import { ConversionChart } from './components/ConversionChart';
 import { ExportHeader } from './components/ExportHeader';
 import { CsvUploaderModal } from './components/CsvUploaderModal';
 import { ManualDataEditorModal } from './components/ManualDataEditorModal';
-import { SharepointSyncModal, DEFAULT_SHAREPOINT_LINK } from './components/SharepointSyncModal';
-import { Calendar, Layers, Cloud, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { SharepointSyncModal, DEFAULT_SPREADSHEET_LINK, DEFAULT_SHAREPOINT_LINK } from './components/SharepointSyncModal';
+import { Calendar, Layers, Cloud, CheckCircle2, AlertCircle, X, FileSpreadsheet } from 'lucide-react';
 
 export default function App() {
   const [periods, setPeriods] = useState<PeriodData[]>(() => {
@@ -34,14 +34,14 @@ export default function App() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSharepointModalOpen, setIsSharepointModalOpen] = useState(false);
 
-  // SharePoint configuration state
+  // Spreadsheet configuration state
   const [sharepointUrl, setSharepointUrl] = useState<string>(() => {
     const saved = localStorage.getItem('dpaschoal_sharepoint_url');
     if (saved && !saved.includes('eeYERK')) {
       return saved;
     }
-    localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SHAREPOINT_LINK);
-    return DEFAULT_SHAREPOINT_LINK;
+    localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SPREADSHEET_LINK);
+    return DEFAULT_SPREADSHEET_LINK;
   });
 
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
@@ -50,7 +50,7 @@ export default function App() {
 
   const [autoSyncOnLoad, setAutoSyncOnLoad] = useState<boolean>(() => {
     const val = localStorage.getItem('dpaschoal_autosync_onload');
-    return val === 'true';
+    return val !== 'false'; // default to true for instant auto-sync
   });
 
   const [isSyncingSharepoint, setIsSyncingSharepoint] = useState(false);
@@ -68,7 +68,7 @@ export default function App() {
   }, [periods]);
 
   const handleSaveSharepointUrl = (url: string) => {
-    const cleanUrl = url.trim() || DEFAULT_SHAREPOINT_LINK;
+    const cleanUrl = url.trim() || DEFAULT_SPREADSHEET_LINK;
     setSharepointUrl(cleanUrl);
     localStorage.setItem('dpaschoal_sharepoint_url', cleanUrl);
   };
@@ -83,11 +83,11 @@ export default function App() {
       setIsSyncingSharepoint(true);
       setSyncToast(null);
 
-      let targetUrl = (sharepointUrl || DEFAULT_SHAREPOINT_LINK).trim();
+      let targetUrl = (sharepointUrl || DEFAULT_SPREADSHEET_LINK).trim();
       if (targetUrl.includes('eeYERK')) {
-        targetUrl = DEFAULT_SHAREPOINT_LINK;
-        setSharepointUrl(DEFAULT_SHAREPOINT_LINK);
-        localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SHAREPOINT_LINK);
+        targetUrl = DEFAULT_SPREADSHEET_LINK;
+        setSharepointUrl(DEFAULT_SPREADSHEET_LINK);
+        localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SPREADSHEET_LINK);
       }
 
       const response = await fetch('/api/sync-sharepoint', {
@@ -102,7 +102,7 @@ export default function App() {
         data = JSON.parse(responseText);
       } catch {
         throw new Error(
-          'O link do SharePoint retornou uma página corporativa de autenticação da Microsoft. É necessário que o link seja gerado com permissão "Qualquer pessoa com o link" ou use o botão "Upload Manual".'
+          'A planilha retornou uma resposta inesperada. Verifique se o link possui permissão pública de acesso.'
         );
       }
 
@@ -126,7 +126,7 @@ export default function App() {
 
       setSyncToast({
         type: 'success',
-        message: `Planilha sincronizada! ${parsedPeriods.length} período(s) atualizados com sucesso da aba "${data.sheetName}".`,
+        message: `Planilha sincronizada! ${parsedPeriods.length} período(s) atualizados com sucesso (${data.provider || 'Nuvem'} - aba "${data.sheetName}").`,
       });
 
       // Auto dismiss success toast after 5s
@@ -134,10 +134,10 @@ export default function App() {
         setSyncToast((prev) => (prev?.type === 'success' ? null : prev));
       }, 5000);
     } catch (err: any) {
-      console.error('Erro na sincronização rápida do SharePoint:', err);
+      console.error('Erro na sincronização rápida:', err);
       setSyncToast({
         type: 'error',
-        message: `Erro ao sincronizar SharePoint: ${err.message || 'Verifique o link ou a conexão.'}`,
+        message: `Erro ao sincronizar planilha: ${err.message || 'Verifique o link ou a conexão.'}`,
       });
     } finally {
       setIsSyncingSharepoint(false);
