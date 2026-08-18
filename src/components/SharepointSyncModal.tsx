@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Cloud, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, X, Save, FileSpreadsheet } from 'lucide-react';
 import { PeriodData } from '../types';
-import { parseMatrixToPeriods } from '../utils/csvParser';
+import {
+  DEFAULT_SPREADSHEET_LINK,
+  DEFAULT_SHAREPOINT_LINK,
+  fetchAndParseOnlineSpreadsheet,
+} from '../utils/spreadsheetSync';
 
-export const DEFAULT_SPREADSHEET_LINK =
-  'https://docs.google.com/spreadsheets/d/1nHeeRDmtPySVts6qb6nO-YocGmhKrNRN_nbeYNNphCc/edit?usp=sharing';
-
-export const DEFAULT_SHAREPOINT_LINK = DEFAULT_SPREADSHEET_LINK;
+export { DEFAULT_SPREADSHEET_LINK, DEFAULT_SHAREPOINT_LINK };
 
 interface SharepointSyncModalProps {
   isOpen: boolean;
@@ -55,43 +56,18 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
       setErrorMsg(null);
       setSuccessMsg(null);
 
-      const response = await fetch('/api/sync-sharepoint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlInput }),
-      });
-
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        throw new Error(
-          'A planilha retornou uma resposta inválida. Verifique se o link possui permissão pública de leitura.'
-        );
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao sincronizar com a planilha.');
-      }
-
-      if (!data.rows || data.rows.length === 0) {
-        throw new Error('A planilha retornada está vazia.');
-      }
-
-      // Parse matrix into PeriodData[]
-      const parsedPeriods = parseMatrixToPeriods(data.rows);
+      const result = await fetchAndParseOnlineSpreadsheet(urlInput);
 
       // Save URL if valid
       onSaveUrl(urlInput);
 
       const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       setSuccessMsg(
-        `Sincronização concluída com sucesso via ${data.provider || 'Nuvem'}! ${parsedPeriods.length} período(s) diários carregados da aba "${data.sheetName}".`
+        `Sincronização concluída com sucesso via ${result.provider}! ${result.periods.length} período(s) diários carregados.`
       );
 
-      onDataLoaded(parsedPeriods, {
-        sheetName: data.sheetName,
+      onDataLoaded(result.periods, {
+        sheetName: result.sheetName,
         syncTime: timeStr,
       });
     } catch (err: any) {

@@ -9,7 +9,12 @@ import { ConversionChart } from './components/ConversionChart';
 import { ExportHeader } from './components/ExportHeader';
 import { CsvUploaderModal } from './components/CsvUploaderModal';
 import { ManualDataEditorModal } from './components/ManualDataEditorModal';
-import { SharepointSyncModal, DEFAULT_SPREADSHEET_LINK, DEFAULT_SHAREPOINT_LINK } from './components/SharepointSyncModal';
+import {
+  SharepointSyncModal,
+  DEFAULT_SPREADSHEET_LINK,
+  DEFAULT_SHAREPOINT_LINK,
+} from './components/SharepointSyncModal';
+import { fetchAndParseOnlineSpreadsheet } from './utils/spreadsheetSync';
 import { Calendar, Layers, Cloud, CheckCircle2, AlertCircle, X, FileSpreadsheet } from 'lucide-react';
 
 export default function App() {
@@ -90,34 +95,10 @@ export default function App() {
         localStorage.setItem('dpaschoal_sharepoint_url', DEFAULT_SPREADSHEET_LINK);
       }
 
-      const response = await fetch('/api/sync-sharepoint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl }),
-      });
-
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        throw new Error(
-          'A planilha retornou uma resposta inesperada. Verifique se o link possui permissão pública de acesso.'
-        );
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha na resposta do servidor.');
-      }
-
-      if (!data.rows || data.rows.length === 0) {
-        throw new Error('Planilha sem linhas de dados.');
-      }
-
-      const parsedPeriods = parseMatrixToPeriods(data.rows);
-      setPeriods(parsedPeriods);
-      if (parsedPeriods.length > 0) {
-        setSelectedPeriodId(parsedPeriods[0].id);
+      const result = await fetchAndParseOnlineSpreadsheet(targetUrl);
+      setPeriods(result.periods);
+      if (result.periods.length > 0) {
+        setSelectedPeriodId(result.periods[0].id);
       }
 
       const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -126,7 +107,7 @@ export default function App() {
 
       setSyncToast({
         type: 'success',
-        message: `Planilha sincronizada! ${parsedPeriods.length} período(s) atualizados com sucesso (${data.provider || 'Nuvem'} - aba "${data.sheetName}").`,
+        message: `Planilha sincronizada! ${result.periods.length} período(s) atualizados com sucesso via ${result.provider}.`,
       });
 
       // Auto dismiss success toast after 5s
