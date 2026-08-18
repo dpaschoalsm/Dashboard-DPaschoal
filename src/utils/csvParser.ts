@@ -213,6 +213,26 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
     }
 
     const rawDataVal = colData !== -1 ? row[colData] : null;
+    const hasAnyMetricData = [
+      colImpressoes,
+      colAlcance,
+      colClick,
+      colContatos,
+      colOrcamentos,
+      colVendas,
+      colFaturamento,
+      colLucro,
+      colInvestimento,
+    ].some((c) => c !== -1 && row[c] !== undefined && row[c] !== null && String(row[c]).trim() !== '');
+
+    // Skip empty trailing date rows with no metrics
+    if (!hasAnyMetricData && !rawDataVal) {
+      continue;
+    }
+    if (!hasAnyMetricData && row.filter((c) => c !== null && c !== undefined && String(c).trim() !== '').length <= 1) {
+      continue;
+    }
+
     const dataName = rawDataVal !== null && rawDataVal !== undefined && String(rawDataVal).trim() !== ''
       ? formatDateCell(rawDataVal)
       : `Período ${i - headerRowIndex}`;

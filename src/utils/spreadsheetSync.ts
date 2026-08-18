@@ -57,34 +57,50 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
   }
 
   // 2. Use backend sync proxy for SharePoint / Google Sheets XLSX
-  const response = await fetch('/api/sync-sharepoint', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: cleanUrl }),
-  });
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch('/api/sync-sharepoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl }),
+      });
 
-  const responseText = await response.text();
-  let data: any;
-  try {
-    data = JSON.parse(responseText);
-  } catch {
-    throw new Error(
-      'A planilha retornou uma resposta inesperada. Verifique se o link possui permissão pública de compartilhamento (Qualquer pessoa com o link).'
-    );
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (!response.ok) {
+          throw new Error(`Erro no servidor HTTP ${response.status}: ${responseText.slice(0, 150)}`);
+        }
+        throw new Error(
+          'O servidor retornou uma resposta não-JSON. Tente novamente em instantes ou verifique o link.'
+        );
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Falha na sincronização (HTTP ${response.status}).`);
+      }
+
+      if (!data.rows || data.rows.length === 0) {
+        throw new Error('A planilha retornada não possui linhas de dados.');
+      }
+
+      const periods = parseMatrixToPeriods(data.rows);
+      return {
+        periods,
+        sheetName: data.sheetName || 'Acompanhamento',
+        provider: data.provider || (googleSheetId ? 'Google Planilhas' : 'SharePoint'),
+      };
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < 2) {
+        // brief pause before retry
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+    }
   }
 
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Falha ao sincronizar com a planilha.');
-  }
-
-  if (!data.rows || data.rows.length === 0) {
-    throw new Error('A planilha retornada não possui linhas de dados.');
-  }
-
-  const periods = parseMatrixToPeriods(data.rows);
-  return {
-    periods,
-    sheetName: data.sheetName || 'Acompanhamento',
-    provider: data.provider || (googleSheetId ? 'Google Planilhas' : 'SharePoint'),
-  };
+  throw lastError || new Error('Não foi possível sincronizar com a planilha após tentativas.');
 }

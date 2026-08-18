@@ -83,7 +83,11 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
   let cookieHeader = getSetCookieHeaders(initialRes);
   const location = initialRes.headers.get('location');
 
-  console.log(`[SharePoint Sync] Step 1 status: ${initialRes.status}, location: ${location ? location.substring(0, 80) + '...' : 'none'}`);
+  console.log(
+    `[SharePoint Sync] Step 1 status: ${initialRes.status}, location: ${
+      location ? location.substring(0, 100) + '...' : 'none'
+    }`
+  );
 
   // If redirected to login without anonymous access
   if (location && (location.includes('login.microsoftonline.com') || location.includes('_forms/default.aspx'))) {
@@ -94,8 +98,43 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
 
   const destinationUrl = location || targetUrl;
 
-  // Step 2: Follow destination with cookies
-  console.log(`[SharePoint Sync] Step 2: Requesting Doc.aspx / destination URL...`);
+  // Step 2: Try fast direct download.aspx if sourcedoc or UniqueId is present in location URL
+  const sourcedocMatch =
+    destinationUrl.match(/sourcedoc=(%7B|\{)?([a-f0-9-]+)(%7D|\})?/i) ||
+    destinationUrl.match(/UniqueId=([a-f0-9-]+)/i);
+
+  if (sourcedocMatch && sourcedocMatch[2]) {
+    const rawUuid = sourcedocMatch[2];
+    try {
+      const origin = new URL(destinationUrl).origin;
+      // Extract pathname base (e.g. /personal/giovana_gomes_dpaschoal_com_br)
+      const pathMatch = destinationUrl.match(/(\/personal\/[^\/]+)/);
+      const personalPath = pathMatch ? pathMatch[1] : '';
+      const fastDownloadUrl = `${origin}${personalPath}/_layouts/15/download.aspx?UniqueId=${rawUuid}&Translate=false`;
+
+      console.log(`[SharePoint Sync] Trying fast direct download: ${fastDownloadUrl}`);
+      const fastDlRes = await fetch(fastDownloadUrl, {
+        headers: {
+          'User-Agent': userAgent,
+          Cookie: cookieHeader,
+        },
+        redirect: 'follow',
+      });
+
+      if (fastDlRes.ok) {
+        const buf = await fastDlRes.arrayBuffer();
+        if (buf.byteLength > 500) {
+          console.log(`[SharePoint Sync] Fast direct download succeeded (${buf.byteLength} bytes).`);
+          return buf;
+        }
+      }
+    } catch (fastErr) {
+      console.warn('[SharePoint Sync] Fast direct download attempt failed, falling back:', fastErr);
+    }
+  }
+
+  // Step 3: Follow destination with cookies
+  console.log(`[SharePoint Sync] Step 3: Requesting Doc.aspx / destination URL...`);
   const docRes = await fetch(destinationUrl, {
     headers: {
       'User-Agent': userAgent,
@@ -105,10 +144,10 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
     redirect: 'follow',
   });
 
-  // Append any new cookies from step 2
-  const step2Cookies = getSetCookieHeaders(docRes);
-  if (step2Cookies) {
-    cookieHeader = cookieHeader ? `${cookieHeader}; ${step2Cookies}` : step2Cookies;
+  // Append any new cookies from step 3
+  const step3Cookies = getSetCookieHeaders(docRes);
+  if (step3Cookies) {
+    cookieHeader = cookieHeader ? `${cookieHeader}; ${step3Cookies}` : step3Cookies;
   }
 
   const docContentType = docRes.headers.get('content-type') || '';
@@ -130,7 +169,7 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
     try {
       const wopiObj = JSON.parse(wopiMatch[1]);
       if (wopiObj.FileGetUrl) {
-        console.log(`[SharePoint Sync] Step 3: Downloading from WOPI FileGetUrl...`);
+        console.log(`[SharePoint Sync] Step 4: Downloading from WOPI FileGetUrl...`);
         const fileRes = await fetch(wopiObj.FileGetUrl, {
           headers: {
             'User-Agent': userAgent,
@@ -152,10 +191,10 @@ async function fetchSharePointWorkbook(targetUrl: string): Promise<ArrayBuffer> 
     }
   }
 
-  // Fallback Step 4: Extract UniqueId / sourcedoc and try download.aspx
-  const sourcedocMatch = destinationUrl.match(/sourcedoc=([^&]+)/) || destinationUrl.match(/UniqueId=([^&]+)/);
-  if (sourcedocMatch && sourcedocMatch[1]) {
-    const rawId = sourcedocMatch[1];
+  // Fallback Step 5: Extract UniqueId / sourcedoc and try download.aspx
+  const fallbackSourcedocMatch = destinationUrl.match(/sourcedoc=([^&]+)/) || destinationUrl.match(/UniqueId=([^&]+)/);
+  if (fallbackSourcedocMatch && fallbackSourcedocMatch[1]) {
+    const rawId = fallbackSourcedocMatch[1];
     const origin = new URL(destinationUrl).origin;
     const downloadUrl = `${origin}/personal/giovana_gomes_dpaschoal_com_br/_layouts/15/download.aspx?sourcedoc=${rawId}`;
 
