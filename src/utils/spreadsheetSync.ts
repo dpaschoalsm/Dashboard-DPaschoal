@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import { PeriodData } from '../types';
 import { parseMatrixToPeriods } from './csvParser';
+import { extractWorkbookRows } from './workbookParser';
 
 export const DEFAULT_SHAREPOINT_LINK =
   'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=jpaBrg';
@@ -22,23 +23,26 @@ export function extractGoogleSpreadsheetId(url: string): string | null {
 }
 
 /**
+ * Candidate API endpoints in order of preference
+ */
+const API_ENDPOINTS = ['/api/sync-sharepoint', '/api/sync', '/api/sharepoint'];
+
+/**
  * Fetches and parses an online spreadsheet (Google Sheets or SharePoint)
- * Handles direct public CSV export with automatic backend fallback
+ * Handles direct public CSV export with automatic backend fallback and CORS proxy fallback
  */
 export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise<SyncResult> {
   const cleanUrl = (targetUrl || DEFAULT_SPREADSHEET_LINK).trim();
 
-  // 1. If Google Sheets link:
+  // 1. If Google Sheets link, try direct browser CSV export first (zero server dependency)
   const googleSheetId = extractGoogleSpreadsheetId(cleanUrl);
   if (googleSheetId) {
     try {
-      // Direct CORS-enabled CSV export
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${googleSheetId}/gviz/tq?tqx=out:csv`;
       const gvizRes = await fetch(gvizUrl);
-      
+
       if (gvizRes.ok) {
         const csvText = await gvizRes.text();
-        // Check if response is actual CSV and not HTML login page
         if (!csvText.startsWith('<!DOCTYPE html') && !csvText.startsWith('<html')) {
           const parsed = Papa.parse<any[]>(csvText, { skipEmptyLines: true });
           if (parsed.data && parsed.data.length > 1) {
@@ -56,15 +60,20 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
     }
   }
 
-  // 2. Use backend sync proxy for SharePoint / Google Sheets XLSX
-  let lastError: any = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // 2. Try backend API endpoints (/api/sync-sharepoint, /api/sync, etc.)
+  let lastApiError: any = null;
+  for (const endpoint of API_ENDPOINTS) {
     try {
-      const response = await fetch('/api/sync-sharepoint', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: cleanUrl }),
       });
+
+      // If 404 or 405, try next endpoint candidate
+      if (response.status === 404 || response.status === 405) {
+        continue;
+      }
 
       const responseText = await response.text();
       let data: any;
@@ -72,11 +81,9 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
         data = JSON.parse(responseText);
       } catch {
         if (!response.ok) {
-          throw new Error(`Erro no servidor HTTP ${response.status}: ${responseText.slice(0, 150)}`);
+          throw new Error(`Erro HTTP ${response.status}: ${responseText.slice(0, 100)}`);
         }
-        throw new Error(
-          'O servidor retornou uma resposta não-JSON. Tente novamente em instantes ou verifique o link.'
-        );
+        throw new Error('Resposta não-JSON recebida do servidor.');
       }
 
       if (!response.ok || !data.success) {
@@ -94,13 +101,40 @@ export async function fetchAndParseOnlineSpreadsheet(targetUrl: string): Promise
         provider: data.provider || (googleSheetId ? 'Google Planilhas' : 'SharePoint'),
       };
     } catch (err: any) {
-      lastError = err;
-      if (attempt < 2) {
-        // brief pause before retry
-        await new Promise((resolve) => setTimeout(resolve, 600));
-      }
+      lastApiError = err;
     }
   }
 
-  throw lastError || new Error('Não foi possível sincronizar com a planilha após tentativas.');
+  // 3. Fallback for Static / Edge environments (Vercel edge, GitHub Pages, etc.)
+  // If backend endpoints are 404, download directly via CORS proxy in browser
+  console.log('[Sync] Backend API unavailable. Attempting direct client-side download...');
+  const directDownloadUrl = cleanUrl.includes('?') ? `${cleanUrl}&download=1` : `${cleanUrl}?download=1`;
+  const corsProxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(directDownloadUrl)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(directDownloadUrl)}`,
+  ];
+
+  for (const proxyUrl of corsProxies) {
+    try {
+      const proxyRes = await fetch(proxyUrl);
+      if (proxyRes.ok) {
+        const arrayBuf = await proxyRes.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuf);
+        // Check ZIP/XLSX header
+        if (bytes.length > 500 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
+          const { rows, sheetName } = extractWorkbookRows(arrayBuf);
+          const periods = parseMatrixToPeriods(rows);
+          return {
+            periods,
+            sheetName,
+            provider: 'SharePoint (Navegador)',
+          };
+        }
+      }
+    } catch (proxyErr) {
+      console.warn('[Sync] Proxy fallback failed:', proxyErr);
+    }
+  }
+
+  throw lastApiError || new Error('Não foi possível conectar com a planilha. Verifique a conexão e o link.');
 }
