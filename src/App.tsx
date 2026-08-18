@@ -84,7 +84,15 @@ export default function App() {
         body: JSON.stringify({ url: targetUrl }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          'O link do SharePoint retornou uma página corporativa de autenticação da Microsoft. É necessário que o link seja gerado com permissão "Qualquer pessoa com o link" ou use o botão "Upload Manual".'
+        );
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Falha na resposta do servidor.');

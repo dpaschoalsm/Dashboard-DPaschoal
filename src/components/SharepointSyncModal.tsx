@@ -4,7 +4,7 @@ import { PeriodData } from '../types';
 import { parseMatrixToPeriods } from '../utils/csvParser';
 
 export const DEFAULT_SHAREPOINT_LINK =
-  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=eeYERK';
+  'https://dpaschoal-my.sharepoint.com/:x:/g/personal/giovana_gomes_dpaschoal_com_br/IQBvvDokxYFyQJ0jJrIb0k6ZAcXj5KIDaEJdkT_9YN2vQ6s?e=bh8fTe';
 
 interface SharepointSyncModalProps {
   isOpen: boolean;
@@ -46,7 +46,15 @@ export const SharepointSyncModal: React.FC<SharepointSyncModalProps> = ({
         body: JSON.stringify({ url: urlInput }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          'O link do SharePoint retornou uma página restrita de login da Microsoft. É necessário que o link seja gerado no SharePoint com permissão "Qualquer pessoa com o link" ou faça o upload manual do arquivo .xlsx/.csv no botão Upload.'
+        );
+      }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Falha ao sincronizar com o SharePoint.');
