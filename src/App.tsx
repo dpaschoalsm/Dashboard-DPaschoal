@@ -217,30 +217,38 @@ export default function App() {
     localStorage.removeItem('dpaschoal_dashboard_periods');
   };
 
-  // Calculate overall accumulated totals across ALL days/periods
+  // Calculate overall accumulated totals across ALL days/periods (Excel column averages for days with sales)
   const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
   const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
   const totalAccInvestimento = periods.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
 
+  const totalPeriodsWithSales = periods.filter(
+    (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
+  );
+
   const totalAccTicketMedio =
-    periods.length > 0
-      ? periods.reduce((acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)), 0) /
-        periods.length
+    totalPeriodsWithSales.length > 0
+      ? totalPeriodsWithSales.reduce(
+          (acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)),
+          0
+        ) / totalPeriodsWithSales.length
       : 0;
 
   const totalAccLucroBrutoMedio =
-    periods.length > 0
-      ? periods.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)), 0) /
-        periods.length
+    totalPeriodsWithSales.length > 0
+      ? totalPeriodsWithSales.reduce(
+          (acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)),
+          0
+        ) / totalPeriodsWithSales.length
       : 0;
 
   const totalAccMargemBruta =
-    periods.length > 0
-      ? periods.reduce((acc, p) => {
+    totalPeriodsWithSales.length > 0
+      ? totalPeriodsWithSales.reduce((acc, p) => {
           let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
           if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
           return acc + val;
-        }, 0) / periods.length
+        }, 0) / totalPeriodsWithSales.length
       : 0;
 
   // Compute active slice & previous slice based on dateSelection
@@ -293,29 +301,39 @@ export default function App() {
   const currentLucroBruto = activeSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
   const currentInvestimento = activeSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
 
+  const activeWithSales = activeSlice.filter(
+    (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
+  );
+
   const currentTicketMedio =
-    currentVendas > 0
-      ? currentFaturamento / currentVendas
-      : activeSlice.length > 0
-      ? activeSlice.reduce((acc, p) => acc + (p.ticketMedio ?? 0), 0) / activeSlice.length
+    activeSlice.length === 1
+      ? activeSlice[0].ticketMedio ?? (activeSlice[0].vendas > 0 ? activeSlice[0].faturamento / activeSlice[0].vendas : 0)
+      : activeWithSales.length > 0
+      ? activeWithSales.reduce(
+          (acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)),
+          0
+        ) / activeWithSales.length
       : 0;
 
   const currentLucroBrutoMedio =
-    currentVendas > 0
-      ? currentLucroBruto / currentVendas
-      : activeSlice.length > 0
-      ? activeSlice.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? 0), 0) / activeSlice.length
+    activeSlice.length === 1
+      ? activeSlice[0].lucroBrutoMedio ?? (activeSlice[0].vendas > 0 ? activeSlice[0].lucroBruto / activeSlice[0].vendas : 0)
+      : activeWithSales.length > 0
+      ? activeWithSales.reduce(
+          (acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)),
+          0
+        ) / activeWithSales.length
       : 0;
 
   const currentMargemBruta =
-    currentFaturamento > 0
-      ? (currentLucroBruto / currentFaturamento) * 100
-      : activeSlice.length > 0
-      ? activeSlice.reduce((acc, p) => {
+    activeSlice.length === 1
+      ? activeSlice[0].margemBruta ?? (activeSlice[0].faturamento > 0 ? (activeSlice[0].lucroBruto / activeSlice[0].faturamento) * 100 : 0)
+      : activeWithSales.length > 0
+      ? activeWithSales.reduce((acc, p) => {
           let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
           if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
           return acc + val;
-        }, 0) / activeSlice.length
+        }, 0) / activeWithSales.length
       : 0;
 
   // Percentage changes vs previous slice
@@ -330,10 +348,35 @@ export default function App() {
     const prevFat = prevSlice.reduce((acc, p) => acc + p.faturamento, 0);
     const prevLucro = prevSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
     const prevInv = prevSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
-    const prevVendas = prevSlice.reduce((acc, p) => acc + p.vendas, 0);
-    const prevTM = prevVendas > 0 ? prevFat / prevVendas : 0;
-    const prevLBM = prevVendas > 0 ? prevLucro / prevVendas : 0;
-    const prevMB = prevFat > 0 ? (prevLucro / prevFat) * 100 : 0;
+
+    const prevWithSales = prevSlice.filter(
+      (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
+    );
+
+    const prevTM =
+      prevSlice.length === 1
+        ? prevSlice[0].ticketMedio ?? (prevSlice[0].vendas > 0 ? prevSlice[0].faturamento / prevSlice[0].vendas : 0)
+        : prevWithSales.length > 0
+        ? prevWithSales.reduce((acc, p) => acc + (p.ticketMedio ?? 0), 0) / prevWithSales.length
+        : 0;
+
+    const prevLBM =
+      prevSlice.length === 1
+        ? prevSlice[0].lucroBrutoMedio ?? (prevSlice[0].vendas > 0 ? prevSlice[0].lucroBruto / prevSlice[0].vendas : 0)
+        : prevWithSales.length > 0
+        ? prevWithSales.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? 0), 0) / prevWithSales.length
+        : 0;
+
+    const prevMB =
+      prevSlice.length === 1
+        ? prevSlice[0].margemBruta ?? (prevSlice[0].faturamento > 0 ? (prevSlice[0].lucroBruto / prevSlice[0].faturamento) * 100 : 0)
+        : prevWithSales.length > 0
+        ? prevWithSales.reduce((acc, p) => {
+            let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+            if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
+            return acc + val;
+          }, 0) / prevWithSales.length
+        : 0;
 
     changeFaturamento = prevFat > 0 ? ((currentFaturamento - prevFat) / prevFat) * 100 : 0;
     changeLucroBruto = prevLucro > 0 ? ((currentLucroBruto - prevLucro) / prevLucro) * 100 : 0;
