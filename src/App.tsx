@@ -217,38 +217,40 @@ export default function App() {
     localStorage.removeItem('dpaschoal_dashboard_periods');
   };
 
-  // Calculate overall accumulated totals across ALL days/periods (Excel column averages for days with sales)
+  // Calculate overall accumulated totals across ALL days/periods (Excel column averages ignoring blank rows)
   const totalAccFaturamento = periods.reduce((acc, p) => acc + p.faturamento, 0);
   const totalAccLucroBruto = periods.reduce((acc, p) => acc + p.lucroBruto, 0);
   const totalAccInvestimento = periods.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
 
-  const totalPeriodsWithSales = periods.filter(
-    (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
-  );
-
+  const totalPeriodsWithTicket = periods.filter((p) => p.ticketMedio !== undefined && p.ticketMedio > 0);
   const totalAccTicketMedio =
-    totalPeriodsWithSales.length > 0
-      ? totalPeriodsWithSales.reduce(
-          (acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)),
-          0
-        ) / totalPeriodsWithSales.length
+    totalPeriodsWithTicket.length > 0
+      ? totalPeriodsWithTicket.reduce((acc, p) => acc + (p.ticketMedio || 0), 0) / totalPeriodsWithTicket.length
+      : periods.some((p) => p.vendas > 0)
+      ? periods.reduce((acc, p) => acc + (p.vendas > 0 ? p.faturamento / p.vendas : 0), 0) /
+        periods.filter((p) => p.vendas > 0).length
       : 0;
 
+  const totalPeriodsWithLucroMedio = periods.filter((p) => p.lucroBrutoMedio !== undefined && p.lucroBrutoMedio > 0);
   const totalAccLucroBrutoMedio =
-    totalPeriodsWithSales.length > 0
-      ? totalPeriodsWithSales.reduce(
-          (acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)),
-          0
-        ) / totalPeriodsWithSales.length
+    totalPeriodsWithLucroMedio.length > 0
+      ? totalPeriodsWithLucroMedio.reduce((acc, p) => acc + (p.lucroBrutoMedio || 0), 0) / totalPeriodsWithLucroMedio.length
+      : periods.some((p) => p.vendas > 0)
+      ? periods.reduce((acc, p) => acc + (p.vendas > 0 ? p.lucroBruto / p.vendas : 0), 0) /
+        periods.filter((p) => p.vendas > 0).length
       : 0;
 
+  const totalPeriodsWithMargem = periods.filter((p) => p.margemBruta !== undefined && p.margemBruta > 0);
   const totalAccMargemBruta =
-    totalPeriodsWithSales.length > 0
-      ? totalPeriodsWithSales.reduce((acc, p) => {
-          let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+    totalPeriodsWithMargem.length > 0
+      ? totalPeriodsWithMargem.reduce((acc, p) => {
+          let val = p.margemBruta || 0;
           if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
           return acc + val;
-        }, 0) / totalPeriodsWithSales.length
+        }, 0) / totalPeriodsWithMargem.length
+      : periods.some((p) => p.faturamento > 0)
+      ? periods.reduce((acc, p) => acc + (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0), 0) /
+        periods.filter((p) => p.faturamento > 0).length
       : 0;
 
   // Compute active slice & previous slice based on dateSelection
@@ -301,39 +303,41 @@ export default function App() {
   const currentLucroBruto = activeSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
   const currentInvestimento = activeSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
 
-  const activeWithSales = activeSlice.filter(
-    (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
-  );
-
+  const currentValidTicket = activeSlice.filter((p) => p.ticketMedio !== undefined && p.ticketMedio > 0);
   const currentTicketMedio =
     activeSlice.length === 1
       ? activeSlice[0].ticketMedio ?? (activeSlice[0].vendas > 0 ? activeSlice[0].faturamento / activeSlice[0].vendas : 0)
-      : activeWithSales.length > 0
-      ? activeWithSales.reduce(
-          (acc, p) => acc + (p.ticketMedio ?? (p.vendas > 0 ? p.faturamento / p.vendas : 0)),
-          0
-        ) / activeWithSales.length
+      : currentValidTicket.length > 0
+      ? currentValidTicket.reduce((acc, p) => acc + (p.ticketMedio || 0), 0) / currentValidTicket.length
+      : activeSlice.some((p) => p.vendas > 0)
+      ? activeSlice.reduce((acc, p) => acc + (p.vendas > 0 ? p.faturamento / p.vendas : 0), 0) /
+        activeSlice.filter((p) => p.vendas > 0).length
       : 0;
 
+  const currentValidLucroMedio = activeSlice.filter((p) => p.lucroBrutoMedio !== undefined && p.lucroBrutoMedio > 0);
   const currentLucroBrutoMedio =
     activeSlice.length === 1
       ? activeSlice[0].lucroBrutoMedio ?? (activeSlice[0].vendas > 0 ? activeSlice[0].lucroBruto / activeSlice[0].vendas : 0)
-      : activeWithSales.length > 0
-      ? activeWithSales.reduce(
-          (acc, p) => acc + (p.lucroBrutoMedio ?? (p.vendas > 0 ? p.lucroBruto / p.vendas : 0)),
-          0
-        ) / activeWithSales.length
+      : currentValidLucroMedio.length > 0
+      ? currentValidLucroMedio.reduce((acc, p) => acc + (p.lucroBrutoMedio || 0), 0) / currentValidLucroMedio.length
+      : activeSlice.some((p) => p.vendas > 0)
+      ? activeSlice.reduce((acc, p) => acc + (p.vendas > 0 ? p.lucroBruto / p.vendas : 0), 0) /
+        activeSlice.filter((p) => p.vendas > 0).length
       : 0;
 
+  const currentValidMargem = activeSlice.filter((p) => p.margemBruta !== undefined && p.margemBruta > 0);
   const currentMargemBruta =
     activeSlice.length === 1
       ? activeSlice[0].margemBruta ?? (activeSlice[0].faturamento > 0 ? (activeSlice[0].lucroBruto / activeSlice[0].faturamento) * 100 : 0)
-      : activeWithSales.length > 0
-      ? activeWithSales.reduce((acc, p) => {
-          let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+      : currentValidMargem.length > 0
+      ? currentValidMargem.reduce((acc, p) => {
+          let val = p.margemBruta || 0;
           if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
           return acc + val;
-        }, 0) / activeWithSales.length
+        }, 0) / currentValidMargem.length
+      : activeSlice.some((p) => p.faturamento > 0)
+      ? activeSlice.reduce((acc, p) => acc + (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0), 0) /
+        activeSlice.filter((p) => p.faturamento > 0).length
       : 0;
 
   // Percentage changes vs previous slice
@@ -349,33 +353,41 @@ export default function App() {
     const prevLucro = prevSlice.reduce((acc, p) => acc + p.lucroBruto, 0);
     const prevInv = prevSlice.reduce((acc, p) => acc + (p.investimento ?? 0), 0);
 
-    const prevWithSales = prevSlice.filter(
-      (p) => (p.vendas && p.vendas > 0) || (p.ticketMedio && p.ticketMedio > 0)
-    );
-
+    const prevValidTM = prevSlice.filter((p) => p.ticketMedio !== undefined && p.ticketMedio > 0);
     const prevTM =
       prevSlice.length === 1
         ? prevSlice[0].ticketMedio ?? (prevSlice[0].vendas > 0 ? prevSlice[0].faturamento / prevSlice[0].vendas : 0)
-        : prevWithSales.length > 0
-        ? prevWithSales.reduce((acc, p) => acc + (p.ticketMedio ?? 0), 0) / prevWithSales.length
+        : prevValidTM.length > 0
+        ? prevValidTM.reduce((acc, p) => acc + (p.ticketMedio || 0), 0) / prevValidTM.length
+        : prevSlice.some((p) => p.vendas > 0)
+        ? prevSlice.reduce((acc, p) => acc + (p.vendas > 0 ? p.faturamento / p.vendas : 0), 0) /
+          prevSlice.filter((p) => p.vendas > 0).length
         : 0;
 
+    const prevValidLBM = prevSlice.filter((p) => p.lucroBrutoMedio !== undefined && p.lucroBrutoMedio > 0);
     const prevLBM =
       prevSlice.length === 1
         ? prevSlice[0].lucroBrutoMedio ?? (prevSlice[0].vendas > 0 ? prevSlice[0].lucroBruto / prevSlice[0].vendas : 0)
-        : prevWithSales.length > 0
-        ? prevWithSales.reduce((acc, p) => acc + (p.lucroBrutoMedio ?? 0), 0) / prevWithSales.length
+        : prevValidLBM.length > 0
+        ? prevValidLBM.reduce((acc, p) => acc + (p.lucroBrutoMedio || 0), 0) / prevValidLBM.length
+        : prevSlice.some((p) => p.vendas > 0)
+        ? prevSlice.reduce((acc, p) => acc + (p.vendas > 0 ? p.lucroBruto / p.vendas : 0), 0) /
+          prevSlice.filter((p) => p.vendas > 0).length
         : 0;
 
+    const prevValidMB = prevSlice.filter((p) => p.margemBruta !== undefined && p.margemBruta > 0);
     const prevMB =
       prevSlice.length === 1
         ? prevSlice[0].margemBruta ?? (prevSlice[0].faturamento > 0 ? (prevSlice[0].lucroBruto / prevSlice[0].faturamento) * 100 : 0)
-        : prevWithSales.length > 0
-        ? prevWithSales.reduce((acc, p) => {
-            let val = p.margemBruta ?? (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0);
+        : prevValidMB.length > 0
+        ? prevValidMB.reduce((acc, p) => {
+            let val = p.margemBruta || 0;
             if (Math.abs(val) <= 1.0 && val !== 0) val *= 100;
             return acc + val;
-          }, 0) / prevWithSales.length
+          }, 0) / prevValidMB.length
+        : prevSlice.some((p) => p.faturamento > 0)
+        ? prevSlice.reduce((acc, p) => acc + (p.faturamento > 0 ? (p.lucroBruto / p.faturamento) * 100 : 0), 0) /
+          prevSlice.filter((p) => p.faturamento > 0).length
         : 0;
 
     changeFaturamento = prevFat > 0 ? ((currentFaturamento - prevFat) / prevFat) * 100 : 0;

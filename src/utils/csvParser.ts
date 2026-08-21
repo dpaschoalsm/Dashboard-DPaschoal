@@ -352,24 +352,38 @@ export function parseMatrixToPeriods(rows: any[][]): PeriodData[] {
       () => (contatos > 0 ? (vendas / contatos) * 100 : 0)
     );
 
-    const margemBruta = parsePercentageVal(
-      colMargemBruta !== -1 ? row[colMargemBruta] : undefined,
-      () => (faturamento > 0 ? (lucroBruto / faturamento) * 100 : 0)
-    );
+    const hasMargemCol = colMargemBruta !== -1;
+    const rawMargemCell = hasMargemCol ? row[colMargemBruta] : undefined;
+    const isMargemFilled = rawMargemCell !== undefined && rawMargemCell !== null && String(rawMargemCell).trim() !== '';
+    const margemBruta = hasMargemCol
+      ? isMargemFilled
+        ? parsePercentageVal(rawMargemCell, () => (faturamento > 0 ? (lucroBruto / faturamento) * 100 : 0))
+        : undefined
+      : faturamento > 0
+      ? (lucroBruto / faturamento) * 100
+      : undefined;
 
-    const ticketMedio =
-      colTicketMedio !== -1 && row[colTicketMedio] !== undefined && String(row[colTicketMedio]).trim() !== ''
-        ? parsePtBrNumber(row[colTicketMedio])
-        : vendas > 0
-        ? faturamento / vendas
-        : 0;
+    const hasTicketCol = colTicketMedio !== -1;
+    const rawTicketCell = hasTicketCol ? row[colTicketMedio] : undefined;
+    const isTicketCellFilled = rawTicketCell !== undefined && rawTicketCell !== null && String(rawTicketCell).trim() !== '';
+    const ticketMedio = hasTicketCol
+      ? isTicketCellFilled
+        ? parsePtBrNumber(rawTicketCell)
+        : undefined
+      : vendas > 0
+      ? faturamento / vendas
+      : undefined;
 
-    const lucroBrutoMedio =
-      colLucroMedio !== -1 && row[colLucroMedio] !== undefined && String(row[colLucroMedio]).trim() !== ''
-        ? parsePtBrNumber(row[colLucroMedio])
-        : vendas > 0
-        ? lucroBruto / vendas
-        : 0;
+    const hasLucroMedioCol = colLucroMedio !== -1;
+    const rawLucroMedioCell = hasLucroMedioCol ? row[colLucroMedio] : undefined;
+    const isLucroMedioFilled = rawLucroMedioCell !== undefined && rawLucroMedioCell !== null && String(rawLucroMedioCell).trim() !== '';
+    const lucroBrutoMedio = hasLucroMedioCol
+      ? isLucroMedioFilled
+        ? parsePtBrNumber(rawLucroMedioCell)
+        : undefined
+      : vendas > 0
+      ? lucroBruto / vendas
+      : undefined;
 
     // Stable ID based on row index and date
     const cleanDateId = dataName.replace(/[^a-zA-Z0-9]/g, '_');
